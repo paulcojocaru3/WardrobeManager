@@ -1,0 +1,48 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Application", "Application", "{D1BAE6A7-33B4-423A-A443-0764DD71BF33}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Domain", "Domain", "{6548AE02-9D29-4001-BCD3-EA80114BAFB1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Infrastructure", "Infrastructure", "{10C5E29C-BCFF-4130-99E1-C4D7744E816B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "WebAPI", "WebAPI", "{DDD82EEB-8839-4C5B-A084-66FA06ABD579}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WardrobeManager.Domain", "WardrobeManager.Domain\WardrobeManager.Domain.csproj", "{D19CD8CD-56D5-471B-91A2-F23D709F8D88}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WardrobeManager.Application", "WardrobeManager.Application\WardrobeManager.Application.csproj", "{1C5912B9-D734-447C-8571-DB7BB31B1D63}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WardrobeManager.Infrastructure", "WardrobeManager.Infrastructure\WardrobeManager.Infrastructure.csproj", "{5A5D5D37-7333-41B8-B906-FD85FC911DD9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WardrobeManager.API", "WardrobeManager.API\WardrobeManager.API.csproj", "{9293CE9B-D2A3-452D-8DF8-3B397E408CC5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D19CD8CD-56D5-471B-91A2-F23D709F8D88} = {6548AE02-9D29-4001-BCD3-EA80114BAFB1}
+		{1C5912B9-D734-447C-8571-DB7BB31B1D63} = {D1BAE6A7-33B4-423A-A443-0764DD71BF33}
+		{5A5D5D37-7333-41B8-B906-FD85FC911DD9} = {10C5E29C-BCFF-4130-99E1-C4D7744E816B}
+		{9293CE9B-D2A3-452D-8DF8-3B397E408CC5} = {DDD82EEB-8839-4C5B-A084-66FA06ABD579}
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D19CD8CD-56D5-471B-91A2-F23D709F8D88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D19CD8CD-56D5-471B-91A2-F23D709F8D88}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D19CD8CD-56D5-471B-91A2-F23D709F8D88}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D19CD8CD-56D5-471B-91A2-F23D709F8D88}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1C5912B9-D734-447C-8571-DB7BB31B1D63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1C5912B9-D734-447C-8571-DB7BB31B1D63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1C5912B9-D734-447C-8571-DB7BB31B1D63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1C5912B9-D734-447C-8571-DB7BB31B1D63}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5A5D5D37-7333-41B8-B906-FD85FC911DD9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5A5D5D37-7333-41B8-B906-FD85FC911DD9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5A5D5D37-7333-41B8-B906-FD85FC911DD9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5A5D5D37-7333-41B8-B906-FD85FC911DD9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9293CE9B-D2A3-452D-8DF8-3B397E408CC5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9293CE9B-D2A3-452D-8DF8-3B397E408CC5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9293CE9B-D2A3-452D-8DF8-3B397E408CC5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9293CE9B-D2A3-452D-8DF8-3B397E408CC5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

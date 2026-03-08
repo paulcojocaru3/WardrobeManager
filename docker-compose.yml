@@ -1,0 +1,18 @@
+services:
+  ml-api:
+    build:
+      context: ./ml_api
+    ports:
+      - "8000:8000"
+
+  wardrobe-web:
+    build:
+      context: .
+      dockerfile: src/WardrobeManager/WardrobeManager.API/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - FastApi__BaseUrl=http://ml-api:8000
+    depends_on:
+      - ml-api
