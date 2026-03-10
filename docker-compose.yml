@@ -1,9 +1,27 @@
 services:
+  postgres-db:
+    image: postgres:17
+    container_name: wardrobe-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=wardrobe_admin
+      - POSTGRES_PASSWORD=wardrobe_pass
+      - POSTGRES_DB=wardrobe_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
   ml-api:
+    image: ml-api:latest
     build:
       context: ./ml_api
     ports:
       - "8000:8000"
+    volumes:
+      - ./ml_api:/app # Mapam folderul local la folderul din container
+    depends_on:
+      - postgres-db
 
   wardrobe-web:
     build:
@@ -13,6 +31,11 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres-db;Database=wardrobe_db;Username=wardrobe_admin;Password=wardrobe_pass
       - FastApi__BaseUrl=http://ml-api:8000
     depends_on:
       - ml-api
+      - postgres-db
+
+volumes:
+  postgres_data:

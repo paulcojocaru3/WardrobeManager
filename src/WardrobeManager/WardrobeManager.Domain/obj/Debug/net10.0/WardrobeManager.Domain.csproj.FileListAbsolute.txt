@@ -1,0 +1,12 @@
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\bin\Debug\net10.0\WardrobeManager.Domain.deps.json
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\bin\Debug\net10.0\WardrobeManager.Domain.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\bin\Debug\net10.0\WardrobeManager.Domain.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.GeneratedMSBuildEditorConfig.editorconfig
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.AssemblyInfoInputs.cache
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.AssemblyInfo.cs
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.csproj.CoreCompileInputs.cache
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.sourcelink.json
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\refint\WardrobeManager.Domain.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\WardrobeManager.Domain.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Domain\obj\Debug\net10.0\ref\WardrobeManager.Domain.dll

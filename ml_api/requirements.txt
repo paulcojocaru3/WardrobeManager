@@ -4,3 +4,5 @@ python-multipart
 tensorflow
 pillow
 numpy
+rembg
+onnxruntime

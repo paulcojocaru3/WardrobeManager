@@ -1,0 +1,16 @@
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\bin\Debug\net10.0\WardrobeManager.Application.deps.json
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\bin\Debug\net10.0\WardrobeManager.Application.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\bin\Debug\net10.0\WardrobeManager.Application.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\bin\Debug\net10.0\WardrobeManager.Domain.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\bin\Debug\net10.0\WardrobeManager.Domain.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.csproj.AssemblyReference.cache
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.AssemblyInfoInputs.cache
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.AssemblyInfo.cs
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.csproj.CoreCompileInputs.cache
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.sourcelink.json
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\Wardrobe.B089DE9A.Up2Date
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\refint\WardrobeManager.Application.dll
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\WardrobeManager.Application.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Application\obj\Debug\net10.0\ref\WardrobeManager.Application.dll
