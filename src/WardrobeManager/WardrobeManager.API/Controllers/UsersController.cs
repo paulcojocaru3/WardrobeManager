@@ -27,7 +27,7 @@ public class UsersController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Login([FromBody] LoginUserQuery query)
     {
         var user = await mediator.Send(query);
-        if (user == null) return Unauthorized("Email sau parolă incorectă.");
+        if (user == null) return Unauthorized("wrong credentials");
         return Ok(user);
     }
 }

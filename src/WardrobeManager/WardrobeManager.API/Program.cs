@@ -2,12 +2,22 @@ using Microsoft.EntityFrameworkCore;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Infrastructure.Persistance;
 using WardrobeManager.Application.Users.Commands;
+using FluentValidation;
+using MediatR;
+using WardrobeManager.Application.Users.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    });
+builder.Services.AddOpenApi();
 builder.Services.AddHttpClient();
 
 // CORS Configuration
@@ -26,15 +36,22 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-// Register MediatR
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(RegisterUserCommand).Assembly));
+// Register MediatR and FluentValidation
+builder.Services.AddMediatR(cfg => {
+    cfg.RegisterServicesFromAssembly(typeof(RegisterUserCommand).Assembly);
+});
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterUserCommandValidator>();
 
 // Register Repositories
 builder.Services.AddScoped<IUserRepository, WardrobeManager.Infrastructure.Repositories.UserRepository>();
 builder.Services.AddScoped<IClothingRepository, WardrobeManager.Infrastructure.Repositories.ClothingRepository>();
+builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Repositories.OutfitRepository>();
 
-// Register External Services (Typed HttpClient)
-builder.Services.AddHttpClient<WardrobeManager.Application.Abstractions.IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
+// Register Domain/Application Services
+builder.Services.AddScoped<WardrobeManager.Application.Outfits.OutfitGenerator>();
+
+// Register extern
+builder.Services.AddHttpClient<IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
 {
     var mlUrl = builder.Configuration["ExternalServices:MlApiUrl"];
     client.BaseAddress = new Uri(mlUrl ?? "http://localhost:8000");
@@ -42,15 +59,45 @@ builder.Services.AddHttpClient<WardrobeManager.Application.Abstractions.IMlServi
 
 var app = builder.Build();
 
-// Automatically ensure database is created
+// Global Exception Handler for all Errors
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (ValidationException ex)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            Errors = ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage })
+        });
+    }
+    catch (Exception ex)
+    {
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            Error = ex.Message,
+            Type = ex.GetType().Name
+        });
+    }
+});
+
+// database creation
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.EnsureCreated();
 }
 
-app.UseSwagger();
-app.UseSwaggerUI();
+app.MapOpenApi();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/openapi/v1.json", "v1");
+});
+
 app.UseCors("AllowReact");
 
 app.MapControllers();

@@ -1,20 +1,25 @@
+using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Clothing;
 
 namespace WardrobeManager.Application.Clothing.Queries;
 
-public class GetClothingItemsQueryHandler(IClothingRepository clothingRepository) : IRequestHandler<GetClothingItemsQuery, List<ClothingItem>>
+public class GetClothingItemsQueryHandler(IClothingRepository clothingRepository, IValidator<GetClothingItemsQuery> validator) : IRequestHandler<GetClothingItemsQuery, List<ClothingItemDto>>
 {
-    public async Task<List<ClothingItem>> Handle(GetClothingItemsQuery request, CancellationToken ct)
+    public async Task<List<ClothingItemDto>> Handle(GetClothingItemsQuery request, CancellationToken ct)
     {
-        // Nu mai folosim .ToListAsync() aici pentru ca este o metoda EF Core.
-        // In loc de asta, luam Query-ul si il convertim in lista.
-        // Ideal, Repository-ul ar trebui sa ne dea direct rezultatul final.
+        await validator.ValidateAndThrowAsync(request, ct);
         
-        return clothingRepository.Query()
-            .Where(i => i.UserId == request.UserId)
-            .OrderByDescending(i => i.CreatedAt)
-            .ToList(); // ToList() este standard LINQ, nu are nevoie de EF Core.
+        var items = await clothingRepository.GetByUserIdAsync(request.UserId, ct);
+
+        return items.Select(i => new ClothingItemDto(
+            i.Id,
+            i.Name,
+            i.Type,
+            i.Color,
+            i.ProcessedImageUrl,
+            i.CreatedAt
+        )).ToList();
     }
 }

@@ -1,15 +1,20 @@
+using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Clothing.Commands;
 
-public class DeleteClothingCommandHandler(IClothingRepository clothingRepository) : IRequestHandler<DeleteClothingCommand, bool>
+public class DeleteClothingCommandHandler(IClothingRepository clothingRepository, IValidator<DeleteClothingCommand> validator) : IRequestHandler<DeleteClothingCommand, bool>
 {
     public async Task<bool> Handle(DeleteClothingCommand request, CancellationToken ct)
     {
-        var item = await clothingRepository.GetByIdAsync(request.Id, ct);
+        await validator.ValidateAndThrowAsync(request, ct);
 
-        if (item == null) return false;
+        var item = await clothingRepository.GetByIdAsync(request.Id, ct);
+        if (item == null)
+        {
+            throw new InvalidOperationException($"Clothing item with ID {request.Id} was not found.");
+        }
 
         await clothingRepository.DeleteAsync(item, ct);
         return true;

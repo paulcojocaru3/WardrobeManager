@@ -1,3 +1,4 @@
+using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Domain.Entities;
@@ -5,29 +6,36 @@ using WardrobeManager.Domain.Enums;
 
 namespace WardrobeManager.Application.Clothing.Commands;
 
-public class UploadClothingCommandHandler(IClothingRepository clothingRepository, IMlService mlService) 
+public class UploadClothingCommandHandler(
+    IClothingRepository clothingRepository, 
+    IUserRepository userRepository,
+    IMlService mlService, 
+    IValidator<UploadClothingCommand> validator) 
     : IRequestHandler<UploadClothingCommand, ClothingItem>
 {
     public async Task<ClothingItem> Handle(UploadClothingCommand request, CancellationToken ct)
     {
-        // 1. Procesare AI (Cere atat Type cat si Color)
+        await validator.ValidateAndThrowAsync(request, ct);
+
+        var user = await userRepository.GetByIdAsync(request.UserId, ct);
+        if (user == null)
+        {
+            throw new InvalidOperationException($"User with ID {request.UserId} was not found.");
+        }
+
         var (typeLabel, colorLabel, processedImageB64) = await mlService.ProcessClothingImageAsync(request.File, ct);
 
-        Console.WriteLine($"[DEBUG] ML Result: Type='{typeLabel}', Color='{colorLabel}'");
-
-        // 2. Creăm entitatea
         var newItem = new ClothingItem
         {
             UserId = request.UserId,
-            Name = request.File.FileName,
+            Name = request.Name, // Numele setat de utilizator
             Type = MapToClothingType(typeLabel),
-            Color = colorLabel, // Salvam culoarea detectata
+            Color = colorLabel, 
             ProcessedImageUrl = $"data:image/png;base64,{processedImageB64}",
             OriginalImageUrl = "saved_locally",
             CreatedAt = DateTime.UtcNow
         };
 
-        // 3. Salvăm
         await clothingRepository.AddAsync(newItem, ct);
         return newItem;
     }

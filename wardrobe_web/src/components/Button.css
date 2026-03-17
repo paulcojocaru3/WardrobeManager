@@ -1,0 +1,61 @@
+.custom-btn {
+  padding: 12px 25px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  cursor: pointer;
+  border-radius: 25px;
+  border: none;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+}
+
+.custom-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.custom-btn:disabled {
+  background: #eee;
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Variantele de stil */
+.custom-btn.primary {
+  background: #000;
+  color: #fff;
+}
+
+.custom-btn.primary:hover:not(:disabled) {
+  background: #333;
+}
+
+.custom-btn.secondary {
+  background: #fff;
+  color: #999;
+  border: 1px solid #f0f0f0;
+}
+
+.custom-btn.secondary:hover:not(:disabled) {
+  border-color: #000;
+  color: #000;
+}
+
+.custom-btn.danger {
+  background: #fff;
+  color: #ff4d4d;
+  border: 1px solid #ff4d4d;
+}
+
+.custom-btn.danger:hover:not(:disabled) {
+  background: #ff4d4d;
+  color: #fff;
+}
+
+/* Loading State */
+.custom-btn.loading {
+  opacity: 0.7;
+}

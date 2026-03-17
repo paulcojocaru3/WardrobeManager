@@ -17,23 +17,18 @@ public class ClothingController(IMediator mediator) : ControllerBase
     }
 
     [HttpPost("upload")]
-    public async Task<IActionResult> Upload([FromForm] UploadClothingCommand command)
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Upload([FromForm] IFormFile File, [FromForm] Guid UserId, [FromForm] string Name)
     {
-        try
-        {
-            var item = await mediator.Send(command);
-            return Ok(item);
-        }
-        catch (Exception ex)
-        {
-            return StatusCode(500, ex.Message);
-        }
+        // Explicitly reading from form fields to ensure maximum compatibility
+        var item = await mediator.Send(new UploadClothingCommand(File, UserId, Name));
+        return Ok(item);
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var success = await mediator.Send(new DeleteClothingCommand(id));
-        return success ? Ok() : NotFound();
+        await mediator.Send(new DeleteClothingCommand(id));
+        return Ok();
     }
 }

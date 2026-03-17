@@ -4,4 +4,4 @@ using Microsoft.AspNetCore.Http;
 
 namespace WardrobeManager.Application.Clothing.Commands;
 
-public record UploadClothingCommand(IFormFile File, Guid UserId) : IRequest<ClothingItem>;
+public record UploadClothingCommand(IFormFile File, Guid UserId, string Name) : IRequest<ClothingItem>;

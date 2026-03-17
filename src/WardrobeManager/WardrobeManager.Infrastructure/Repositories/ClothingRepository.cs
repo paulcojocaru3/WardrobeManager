@@ -27,6 +27,14 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
             .FirstOrDefaultAsync(i => i.Id == id, ct);
     }
 
+    public async Task<List<ClothingItem>> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
+    {
+        return await context.ClothingItems
+            .Where(i => i.UserId == userId)
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync(ct);
+    }
+
     public IQueryable<ClothingItem> Query()
     {
         return context.ClothingItems;

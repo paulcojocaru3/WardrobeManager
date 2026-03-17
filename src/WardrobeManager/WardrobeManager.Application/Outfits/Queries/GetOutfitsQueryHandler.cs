@@ -1,0 +1,26 @@
+using FluentValidation;
+using MediatR;
+using WardrobeManager.Application.Abstractions;
+using WardrobeManager.Application.Clothing;
+
+namespace WardrobeManager.Application.Outfits.Queries;
+
+public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidator<GetOutfitsQuery> validator) : IRequestHandler<GetOutfitsQuery, List<OutfitDto>>
+{
+    public async Task<List<OutfitDto>> Handle(GetOutfitsQuery request, CancellationToken ct)
+    {
+        await validator.ValidateAndThrowAsync(request, ct);
+
+        var outfits = await outfitRepository.GetByUserIdAsync(request.UserId, ct);
+
+        return outfits.Select(o => new OutfitDto(
+            o.Id,
+            o.Name,
+            o.IsAiGenerated,
+            o.CreatedAt,
+            o.Items.Select(i => new ClothingItemDto(
+                i.Id, i.Name, i.Type, i.Color, i.ProcessedImageUrl, i.CreatedAt
+            )).ToList()
+        )).ToList();
+    }
+}
