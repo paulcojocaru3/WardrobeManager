@@ -25,7 +25,7 @@ public class GenerateOutfitCommandHandler(
         }
 
 
-        var aiResult = await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, 0.5, ct);
+        var aiResult = await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, 0.5, ct: ct);
 
         var itemsInDb = new List<ClothingItem>();
         foreach (var item in aiResult.SelectedItems)
