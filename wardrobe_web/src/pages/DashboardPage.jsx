@@ -43,9 +43,102 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const [aiModal, setAiModal] = useState(false);
   const [aiData, setAiData] = useState(null);
+  const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting...');
+  const [cityModal, setCityModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [weatherInfo, setWeatherInfo] = useState(null);
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [selectedStyle, setSelectedStyle] = useState('Casual');
+  const [styleSelectionModal, setStyleSelectionModal] = useState(false);
+  const [generationContext, setGenerationContext] = useState(null); // 'today' or 'item'
 
   const fileInputRef = useRef(null);
   const userId = user?.id || user?.Id;
+
+  // Fetch dynamic city suggestions as user types in modal
+  useEffect(() => {
+    const searchCities = async () => {
+      if (!searchTerm || searchTerm.length < 3) {
+        setCitySuggestions([]);
+        return;
+      }
+      try {
+        const res = await axios.get(`${API_BASE_URL}/outfits/cities/search?query=${searchTerm}`);
+        setCitySuggestions(res.data);
+      } catch (e) { console.error("City search error", e); }
+    };
+
+    const timeoutId = setTimeout(searchCities, 400); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
+
+  // 1. Improved location detection with fallback and persistence
+  useEffect(() => {
+    const detectLocation = async () => {
+      const savedCity = localStorage.getItem('userCity');
+      if (savedCity) {
+        setCity(savedCity);
+        return;
+      }
+
+      try {
+        console.log("Attempting location detection via ipapi.co...");
+        const res = await axios.get('https://ipapi.co/json/');
+        if (res.data && res.data.city) {
+          console.log("Detected city (ipapi):", res.data.city);
+          setCity(res.data.city);
+          localStorage.setItem('userCity', res.data.city);
+        } else {
+          throw new Error("Invalid response from ipapi");
+        }
+      } catch (e) {
+        console.warn("ipapi.co failed, trying ip-api.com fallback...", e.message);
+        try {
+          const res = await axios.get('http://ip-api.com/json/');
+          if (res.data && res.data.city) {
+            console.log("Detected city (ip-api):", res.data.city);
+            setCity(res.data.city);
+            localStorage.setItem('userCity', res.data.city);
+          } else {
+            setCity('Bucharest');
+          }
+        } catch (e2) {
+          console.error("All location services failed", e2);
+          setCity('Bucharest');
+        }
+      }
+    };
+    detectLocation();
+  }, []);
+
+  const handleCityChange = (newCity) => {
+    setCity(newCity);
+    localStorage.setItem('userCity', newCity);
+  };
+
+  const fetchWeather = async () => {
+    if (city === 'Detecting...') return;
+    try {
+      const res = await axios.get(`${API_BASE_URL}/outfits/weather/${city}`);
+      setWeatherInfo(res.data);
+    } catch (e) { console.error("Weather error:", e); }
+  };
+
+  const getWeatherStyles = () => {
+    if (!weatherInfo || !weatherInfo.condition) return { background: 'rgba(255,255,255,0.05)', color: '#fff' };
+    
+    const condition = weatherInfo.condition.toLowerCase();
+    if (condition.includes('clear') || condition.includes('sun')) 
+      return { background: 'linear-gradient(135deg, #FF8C00 0%, #FFD700 100%)', color: '#000' };
+    if (condition.includes('cloud')) 
+      return { background: 'linear-gradient(135deg, #757F9A 0%, #D7DDE8 100%)', color: '#000' };
+    if (condition.includes('rain') || condition.includes('drizzle')) 
+      return { background: 'linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%)', color: '#fff' };
+    if (condition.includes('snow')) 
+      return { background: 'linear-gradient(135deg, #E0EAFC 0%, #CFDEF3 100%)', color: '#000' };
+    
+    return { background: 'linear-gradient(135deg, #646cff 0%, #9089ff 100%)', color: '#fff' };
+  };
 
   const fetchClothes = async () => {
     try {
@@ -67,9 +160,41 @@ const DashboardPage = ({ user, onLogout }) => {
     if (!userId) return;
     fetchClothes();
     fetchOutfits();
+    fetchWeather();
   };
 
   useEffect(() => { refresh(); }, [userId]);
+  useEffect(() => { fetchWeather(); }, [city]);
+
+  const onGenerate = (item = null) => {
+    if (item) setSelectedItem(item);
+    setGenerationContext(item ? 'item' : 'today');
+    setStyleSelectionModal(true);
+  };
+
+  const executeGeneration = async (style) => {
+    setStyleSelectionModal(false);
+    setLoading(true);
+    
+    let startItem = selectedItem;
+    if (generationContext === 'today') {
+      const candidates = clothes.filter(c => c.usage?.toLowerCase().includes(style.toLowerCase()));
+      startItem = candidates.length > 0 
+        ? candidates[Math.floor(Math.random() * candidates.length)] 
+        : clothes[Math.floor(Math.random() * clothes.length)];
+    }
+
+    if (!startItem) { setLoading(false); return; }
+
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/outfits/generate-ai`, { 
+        userId, startItemId: startItem.id, threshold: 0.5, city, style 
+      });
+      setAiData(data);
+      setAiModal(true);
+    } catch (err) { alert("Generation failed"); }
+    finally { setLoading(false); setSelectedItem(null); }
+  };
 
   const onUpload = async () => {
     setLoading(true);
@@ -366,22 +491,6 @@ const DashboardPage = ({ user, onLogout }) => {
     );
   };
 
-  const onGenerate = async () => {
-    setLoading(true);
-    try {
-      // Use the NEW AI endpoint
-      const res = await axios.post(`${API_BASE_URL}/outfits/generate-ai`, { 
-        userId, 
-        startItemId: selectedItem.id,
-        threshold: 0.5 
-      });
-      setAiData(res.data);
-      setAiModal(true);
-      setSelectedItem(null);
-    } catch (err) { alert("Generation failed"); }
-    finally { setLoading(false); }
-  };
-
   const onSaveAiOutfit = async () => {
     setLoading(true);
     try {
@@ -446,6 +555,78 @@ const DashboardPage = ({ user, onLogout }) => {
         <div className="centered-content">
           <h2 className="soft-title">{view === 'clothes' ? 'your wardrobe' : 'generated outfits'}</h2>
           
+          {/* WEATHER BAR */}
+          <div className="weather-bar" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            ...getWeatherStyles(),
+            padding: '20px 30px',
+            borderRadius: '20px',
+            marginBottom: '30px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+            transition: 'all 0.5s ease',
+            border: 'none',
+            color: getWeatherStyles().color || '#fff'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '30px' }}>
+              <div 
+                style={{ textAlign: 'left', cursor: 'pointer' }} 
+                onClick={() => {
+                  setSearchTerm('');
+                  setCityModal(true);
+                }}
+              >
+                <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>LOCATION (EDIT)</span>
+                <span style={{ 
+                  fontSize: '1.4rem', 
+                  fontWeight: '900',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  borderBottom: '2px solid rgba(0,0,0,0.1)'
+                }}>
+                  {city}
+                </span>
+              </div>
+              {weatherInfo && (
+                <>
+                  <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
+                    <span style={{ fontSize: '1.4rem', fontWeight: '900' }}>{weatherInfo.temperature.toFixed(0)}°C</span>
+                    <span style={{ fontSize: '0.9rem', marginLeft: '10px', fontWeight: 'bold', opacity: 0.8, textTransform: 'uppercase' }}>{weatherInfo.condition}</span>
+                  </div>
+                  <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
+                    <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>RECOMMENDED SEASON</span>
+                    <span style={{ fontSize: '1.1rem', fontWeight: '900', textTransform: 'uppercase' }}>{weatherInfo.seasonSuggestion}</span>
+                  </div>
+                </>
+              )}
+            </div>
+            <button 
+              className="gen-btn" 
+              onClick={() => {
+                setGenerationContext('today');
+                setStyleSelectionModal(true);
+              }}
+              disabled={loading || clothes.length === 0}
+              style={{ 
+                padding: '12px 30px', 
+                fontSize: '0.8rem', 
+                background: '#000', 
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                fontWeight: 'bold',
+                boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+                cursor: 'pointer',
+                transition: 'transform 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
+              onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+            >
+              GENERATE TODAY'S OUTFIT
+            </button>
+          </div>
+
           {view === 'clothes' ? (
             <div className="wardrobe-container">
               <div className="upload-section">
@@ -595,7 +776,7 @@ const DashboardPage = ({ user, onLogout }) => {
             </div>
 
             <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
-              <button className="gen-btn" onClick={onGenerate} disabled={loading} style={{ flex: 2 }}>
+              <button className="gen-btn" onClick={() => onGenerate(selectedItem)} disabled={loading} style={{ flex: 2 }}>
                 {loading ? 'GENERATING...' : 'GENERATE OUTFIT'}
               </button>
               <button className="close-link" onClick={() => setSelectedItem(null)} style={{ flex: 1 }}>
@@ -605,6 +786,54 @@ const DashboardPage = ({ user, onLogout }) => {
           </div>
         )}
       </Modal>
+
+      {/* STYLE SELECTION MODAL */}
+      <Modal isOpen={styleSelectionModal} onClose={() => setStyleSelectionModal(false)} title="SELECT OUTFIT STYLE" size="medium">
+        <div style={{ padding: '10px' }}>
+          <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '20px', textAlign: 'center' }}>
+            Choose the occasion for your outfit. Our AI will filter items based on your style and today's weather.
+          </p>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(2, 1fr)', 
+            gap: '15px' 
+          }}>
+            {USAGES.map(style => (
+              <button
+                key={style}
+                onClick={() => executeGeneration(style)}
+                style={{
+                  padding: '20px',
+                  background: '#fff',
+                  color: '#000',
+                  border: '1px solid #eee',
+                  borderRadius: '15px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '10px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#000';
+                  e.currentTarget.style.color = '#fff';
+                  e.currentTarget.style.transform = 'translateY(-3px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.color = '#000';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <span style={{ fontWeight: '900', fontSize: '0.9rem', letterSpacing: '1px' }}>{style.toUpperCase()}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Modal>
+
       <Modal isOpen={aiModal} onClose={() => setAiModal(false)} title="AI OUTFIT SUGGESTION" size="large">
         {aiData && (
           <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px' }}>
@@ -737,6 +966,65 @@ const DashboardPage = ({ user, onLogout }) => {
 
       <Modal isOpen={validationModal} onClose={() => setValidationModal(false)} title="Verify AI Prediction" size="medium">
         {renderValidationStep()}
+      </Modal>
+
+      {/* CITY SELECTION MODAL */}
+      <Modal isOpen={cityModal} onClose={() => setCityModal(false)} title="SELECT LOCATION" size="small">
+        <div style={{ padding: '10px' }}>
+          <input 
+            className="name-input"
+            placeholder="Type city name (e.g. Iasi)..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            autoFocus
+            style={{ marginBottom: '20px', textAlign: 'left', padding: '12px 20px' }}
+          />
+          
+          <div style={{ 
+            maxHeight: '300px', 
+            overflowY: 'auto', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px' 
+          }}>
+            {citySuggestions.map((c, idx) => (
+              <button
+                key={`${c.name}-${idx}`}
+                onClick={() => {
+                  handleCityChange(c.name);
+                  setCityModal(false);
+                }}
+                style={{
+                  padding: '15px',
+                  background: 'rgba(0,0,0,0.03)',
+                  border: '1px solid rgba(0,0,0,0.05)',
+                  borderRadius: '12px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(100, 108, 255, 0.1)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(0,0,0,0.03)'}
+              >
+                <span style={{ fontWeight: 'bold', color: '#000' }}>{c.name}</span>
+                <span style={{ fontSize: '0.7rem', color: '#666' }}>{c.state ? `${c.state}, ` : ''}{c.country}</span>
+              </button>
+            ))}
+            {searchTerm.length >= 3 && citySuggestions.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '0.8rem' }}>
+                Searching for results...
+              </div>
+            )}
+            {searchTerm.length < 3 && (
+              <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '0.8rem' }}>
+                Enter at least 3 characters
+              </div>
+            )}
+          </div>
+        </div>
       </Modal>
     </div>
   );

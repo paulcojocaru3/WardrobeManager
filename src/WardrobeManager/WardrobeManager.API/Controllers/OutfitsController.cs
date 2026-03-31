@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Outfits.Commands;
 using WardrobeManager.Application.Outfits.Queries;
 
@@ -9,6 +10,22 @@ namespace WardrobeManager.API.Controllers;
 [Route("api/[controller]")]
 public class OutfitsController(IMediator mediator) : ControllerBase
 {
+    [HttpGet("weather/{city}")]
+    public async Task<IActionResult> GetWeather(string city)
+    {
+        var weatherService = HttpContext.RequestServices.GetRequiredService<IWeatherService>();
+        var weather = await weatherService.GetCurrentWeatherAsync(city);
+        return Ok(weather);
+    }
+
+    [HttpGet("cities/search")]
+    public async Task<IActionResult> SearchCities([FromQuery] string query)
+    {
+        var weatherService = HttpContext.RequestServices.GetRequiredService<IWeatherService>();
+        var cities = await weatherService.SearchCitiesAsync(query);
+        return Ok(cities);
+    }
+
     [HttpPost("generate")]
     public async Task<IActionResult> GenerateOutfit([FromBody] GenerateOutfitCommand command)
     {

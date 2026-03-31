@@ -49,6 +49,7 @@ builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Rep
 
 // Register Domain/Application Services
 builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();
+builder.Services.AddScoped<IWeatherService, WardrobeManager.Infrastructure.ExternalServices.WeatherService>();
 
 // Register extern
 builder.Services.AddHttpClient<IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
