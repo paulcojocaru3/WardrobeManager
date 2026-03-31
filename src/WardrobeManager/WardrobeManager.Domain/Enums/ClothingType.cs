@@ -6,6 +6,5 @@ public enum ClothingType
     Bottom,
     Shoes,
     Outerwear,
-    Accessory,
-    Underwear
+    Accessory
 }

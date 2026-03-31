@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using WardrobeManager.Domain.Entities;
+using System.Linq;
 
 namespace WardrobeManager.Infrastructure.Persistance;
 
@@ -15,6 +17,7 @@ public class ApplicationDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("vector");
         base.OnModelCreating(modelBuilder);
 
         // User Configuration
@@ -32,6 +35,18 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.User)
                   .WithMany(u => u.ClothingItems)
                   .HasForeignKey(e => e.UserId);
+
+            // Configure Embedding vector (CLIP is 512-dim)
+            entity.Property(e => e.Embedding)
+                  .HasColumnType("vector(512)")
+                  .HasConversion(
+                      v => v == null ? null : new Pgvector.Vector(v),
+                      v => v == null ? null : v.ToArray()
+                  )
+                  .Metadata.SetValueComparer(new ValueComparer<float[]>(
+                      (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
+                      c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                      c => c.ToArray()));
         });
 
         // Outfit Configuration (Many-to-Many with ClothingItem)

@@ -1,5 +1,4 @@
 using MediatR;
-using WardrobeManager.Application.Clothing;
 
 namespace WardrobeManager.Application.Clothing.Queries;
 

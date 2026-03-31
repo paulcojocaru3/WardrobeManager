@@ -16,6 +16,20 @@ public class OutfitsController(IMediator mediator) : ControllerBase
         return Ok(outfit);
     }
 
+    [HttpPost("generate-ai")]
+    public async Task<IActionResult> GenerateAiOutfit([FromBody] GenerateAiOutfitCommand command)
+    {
+        var result = await mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> CreateOutfit([FromBody] CreateOutfitCommand command)
+    {
+        var id = await mediator.Send(command);
+        return Ok(id);
+    }
+
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserOutfits(Guid userId)
     {

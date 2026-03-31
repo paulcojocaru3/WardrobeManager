@@ -1,8 +1,11 @@
 fastapi
 uvicorn[standard]
 python-multipart
-tensorflow
 pillow
 numpy
 rembg
 onnxruntime
+transformers
+torch
+joblib
+scikit-learn

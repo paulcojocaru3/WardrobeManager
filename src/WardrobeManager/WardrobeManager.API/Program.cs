@@ -34,7 +34,7 @@ builder.Services.AddCors(options =>
 // Database Configuration
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, o => o.UseVector()));
 
 // Register MediatR and FluentValidation
 builder.Services.AddMediatR(cfg => {
@@ -48,12 +48,12 @@ builder.Services.AddScoped<IClothingRepository, WardrobeManager.Infrastructure.R
 builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Repositories.OutfitRepository>();
 
 // Register Domain/Application Services
-builder.Services.AddScoped<WardrobeManager.Application.Outfits.OutfitGenerator>();
+builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();
 
 // Register extern
 builder.Services.AddHttpClient<IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
 {
-    var mlUrl = builder.Configuration["ExternalServices:MlApiUrl"];
+    var mlUrl = builder.Configuration["FastApi:BaseUrl"] ?? builder.Configuration["ExternalServices:MlApiUrl"];
     client.BaseAddress = new Uri(mlUrl ?? "http://localhost:8000");
 });
 
@@ -85,11 +85,25 @@ app.Use(async (context, next) =>
     }
 });
 
-// database creation
+// database creation with retry logic
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.EnsureCreated();
+    int retries = 5;
+    while (retries > 0)
+    {
+        try
+        {
+            db.Database.EnsureCreated();
+            break;
+        }
+        catch (Exception)
+        {
+            retries--;
+            if (retries == 0) throw;
+            Thread.Sleep(5000); 
+        }
+    }
 }
 
 app.MapOpenApi();

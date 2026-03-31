@@ -1,8 +1,9 @@
 using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Outfits.Queries;
 
 namespace WardrobeManager.Application.Abstractions;
 
 public interface IOutfitGenerator
 {
-    Outfit Generate(User user, ClothingItem startItem, IEnumerable<ClothingItem> availableItems);
+    Task<AiGeneratedOutfitDto> GenerateAiOutfitAsync(Guid userId, Guid startItemId, double threshold = 0.5, CancellationToken ct = default);
 }

@@ -1,7 +1,7 @@
 using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Application.Clothing;
+using WardrobeManager.Application.Clothing.Queries;
 
 namespace WardrobeManager.Application.Outfits.Queries;
 
@@ -19,7 +19,7 @@ public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidat
             o.IsAiGenerated,
             o.CreatedAt,
             o.Items.Select(i => new ClothingItemDto(
-                i.Id, i.Name, i.Type, i.Color, i.ProcessedImageUrl, i.CreatedAt
+                i.Id, i.Name, i.Type, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl!, i.CreatedAt
             )).ToList()
         )).ToList();
     }

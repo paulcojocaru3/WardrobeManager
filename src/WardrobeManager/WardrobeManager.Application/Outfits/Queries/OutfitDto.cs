@@ -1,6 +1,6 @@
-using WardrobeManager.Application.Clothing;
+using WardrobeManager.Application.Clothing.Queries;
 
-namespace WardrobeManager.Application.Outfits;
+namespace WardrobeManager.Application.Outfits.Queries;
 
 public record OutfitDto(
     Guid Id,

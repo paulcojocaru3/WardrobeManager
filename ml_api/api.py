@@ -2,27 +2,60 @@ import json
 import numpy as np
 from io import BytesIO
 from PIL import Image
-import tensorflow as tf
 from fastapi import FastAPI, File, UploadFile
 from rembg import remove
 import base64
+import torch
+import torch.nn.functional as F
+from transformers import CLIPProcessor, CLIPModel
+import joblib
+import os
 
-app = FastAPI(title="ML API")
+app = FastAPI(title="Fashion AI API")
 
-MODEL_PATH = "fashion_my_model.h5"
-CLASSES_PATH = "classes.json"
-IMG_SIZE = (224, 224)
+# Parametri imagine
 UPSCALE_SIZE = (1024, 1024)
+CLIP_MODEL_NAME = "patrickjohncyh/fashion-clip"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = tf.keras.models.load_model(MODEL_PATH)
-with open(CLASSES_PATH, "r") as f:
-    CLASSES = json.load(f)
+print(f"Loading FashionCLIP model: {CLIP_MODEL_NAME} on {device}...")
+clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
+clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
 
-def preprocess(img: Image.Image) -> np.ndarray:
-    img_resized = img.resize(IMG_SIZE)
-    x = np.array(img_resized, dtype=np.float32)[None, ...]
-    x = tf.keras.applications.resnet50.preprocess_input(x)
-    return x
+# Incarcare modele Logistic Regression
+MODELS_DIR = "models"
+print("Loading specialized fashion models...")
+article_type_model = joblib.load(os.path.join(MODELS_DIR, "articleType_fashion_model.joblib"))
+gender_model = joblib.load(os.path.join(MODELS_DIR, "gender_fashion_model.joblib"))
+season_model = joblib.load(os.path.join(MODELS_DIR, "season_fashion_model.joblib"))
+usage_model = joblib.load(os.path.join(MODELS_DIR, "usage_fashion_model.joblib"))
+
+# Incarcare culori pentru Zero-Shot
+with open("colors.json", "r") as f:
+    COLORS = json.load(f)
+
+COLOR_PROMPTS = [f"a photo of a {c} colored clothing item" for c in COLORS]
+
+def extract_tensor(outputs):
+    if torch.is_tensor(outputs):
+        return outputs
+    for attr in ["image_embeds", "text_embeds", "pooler_output", "last_hidden_state"]:
+        val = getattr(outputs, attr, None)
+        if val is not None and torch.is_tensor(val):
+            return val
+    if hasattr(outputs, "logits") and torch.is_tensor(outputs.logits):
+        return outputs.logits
+    if isinstance(outputs, (dict, list)) and len(outputs) > 0:
+        return outputs[0] if torch.is_tensor(outputs[0]) else outputs
+    return outputs
+
+# Pre-calculam embedding-urile de text pentru culori
+print(f"Pre-calculating text embeddings for {len(COLORS)} colors...")
+with torch.no_grad():
+    text_inputs = clip_processor(text=COLOR_PROMPTS, return_tensors="pt", padding=True).to(device)
+    raw_outputs = clip_model.get_text_features(**text_inputs)
+    text_features = extract_tensor(raw_outputs)
+    text_features = F.normalize(text_features, p=2, dim=-1)
 
 @app.post("/process-clothing")
 async def process_clothing(file: UploadFile = File(...)):
@@ -33,44 +66,45 @@ async def process_clothing(file: UploadFile = File(...)):
     processed_img_bytes = remove(img_bytes)
     processed_img = Image.open(BytesIO(processed_img_bytes)).convert("RGBA")
 
-    # 2. Upscale
-    upscaled_img = processed_img.resize(UPSCALE_SIZE, Image.Resampling.LANCZOS)
-
-    # 3. Predict Categories (Type and Color)
-    x = preprocess(original_img)
-    probs = model.predict(x, verbose=0)[0]
+    # 2. Clean & High-Quality Resize for UI (maintain aspect ratio)
+    ui_img = processed_img.copy()
+    ui_img.thumbnail((800, 800), Image.Resampling.LANCZOS)
     
-    # Gasim cel mai bun Type (cele care incep cu type_)
-    type_indices = [i for i, label in enumerate(CLASSES) if label.startswith("type_")]
-    best_type_idx = type_indices[np.argmax(probs[type_indices])]
-    best_type = CLASSES[best_type_idx].replace("type_", "")
-
-    # Gasim cel mai bun Color (cele care incep cu color_)
-    color_indices = [i for i, label in enumerate(CLASSES) if label.startswith("color_")]
-    best_color_idx = color_indices[np.argmax(probs[color_indices])]
-    best_color = CLASSES[best_color_idx].replace("color_", "")
-    
-    # 4. Convert back to base64
     buffered = BytesIO()
-    upscaled_img.save(buffered, format="PNG")
+    ui_img.save(buffered, format="PNG", quality=95)
     img_str = base64.b64encode(buffered.getvalue()).decode()
 
+    # 3. Generate Image Embedding (using original image for best CLIP results)
+    inputs = clip_processor(images=original_img, return_tensors="pt").to(device)
+    with torch.no_grad():
+        raw_outputs = clip_model.get_image_features(**inputs)
+        image_features = extract_tensor(raw_outputs)
+        image_features = F.normalize(image_features, p=2, dim=-1)
+        embedding = image_features.cpu().numpy().tolist()[0]
+    
+    # 4. Predict Properties (using the embedding)
+    emb_np = np.array([embedding])
+    predicted_article_type = article_type_model.predict(emb_np)[0]
+    predicted_gender = gender_model.predict(emb_np)[0]
+    predicted_season = season_model.predict(emb_np)[0]
+    predicted_usage = usage_model.predict(emb_np)[0]
+
+    # 5. Zero-Shot Color Classification
+    with torch.no_grad():
+        similarities = (image_features @ text_features.T)
+        best_color_idx = similarities.argmax().item()
+        best_color = COLORS[best_color_idx]
+
     return {
-        "type": best_type,
+        "type": str(predicted_article_type),
+        "gender": str(predicted_gender),
+        "season": str(predicted_season),
+        "usage": str(predicted_usage),
         "color": best_color,
-        "processed_image_b64": img_str
+        "processed_image_b64": img_str,
+        "embedding": embedding
     }
 
-@app.post("/predict")
-async def predict(file: UploadFile = File(...), threshold: float = 0.35, top_k: int = 12):
-    img_bytes = await file.read()
-    img = Image.open(BytesIO(img_bytes)).convert("RGB")
-    x = preprocess(img)
-    probs = model.predict(x, verbose=0)[0]
-    idx = np.argsort(probs)[::-1][:top_k]
-    return {
-        "top": [
-            {"label": CLASSES[i], "score": float(probs[i]), "passed": bool(probs[i] >= threshold)}
-            for i in idx
-        ]
-    }
+@app.get("/health")
+async def health():
+    return {"status": "ready", "model": CLIP_MODEL_NAME}

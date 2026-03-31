@@ -18,3 +18,4 @@ D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Infrastructure\
 D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Infrastructure\obj\Debug\net10.0\WardrobeManager.Infrastructure.genruntimeconfig.cache
 D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Infrastructure\bin\Debug\net10.0\WardrobeManager.Application.dll
 D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Infrastructure\bin\Debug\net10.0\WardrobeManager.Application.pdb
+D:\facultate\proiect_licenta\src\WardrobeManager\WardrobeManager.Infrastructure\obj\Debug\net10.0\EFCoreNpgsqlPgvector.cs

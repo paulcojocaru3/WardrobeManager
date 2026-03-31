@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 using WardrobeManager.Infrastructure.Persistance;
 
 #nullable disable
@@ -21,6 +22,7 @@ namespace WardrobeManager.Infrastructure.Migrations
                 .HasAnnotation("ProductVersion", "9.0.2")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("ClothingItemOutfit", b =>
@@ -50,6 +52,12 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(512)");
+
+                    b.Property<string>("Gender")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsFavorite")
                         .HasColumnType("boolean");
 
@@ -67,8 +75,14 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Property<string>("ProcessedImageUrl")
                         .HasColumnType("text");
 
+                    b.Property<string>("Season")
+                        .HasColumnType("text");
+
                     b.Property<int>("Type")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Usage")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");

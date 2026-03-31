@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WardrobeManager.Domain")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+eeeb478b0b1f6df0d7d883eded413c82718c442e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+213a09181f70e8e611e0bd9a225b6de7265877c9")]
 [assembly: System.Reflection.AssemblyProductAttribute("WardrobeManager.Domain")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WardrobeManager.Domain")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

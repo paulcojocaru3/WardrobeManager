@@ -1,7 +1,6 @@
 using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Application.Clothing;
 
 namespace WardrobeManager.Application.Clothing.Queries;
 
@@ -18,7 +17,10 @@ public class GetClothingItemsQueryHandler(IClothingRepository clothingRepository
             i.Name,
             i.Type,
             i.Color,
-            i.ProcessedImageUrl,
+            i.Gender,
+            i.Season,
+            i.Usage,
+            i.ProcessedImageUrl ?? string.Empty,
             i.CreatedAt
         )).ToList();
     }

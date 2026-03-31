@@ -1,7 +1,8 @@
 using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Application.Clothing;
+using WardrobeManager.Application.Clothing.Queries;
+using WardrobeManager.Application.Outfits.Queries;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Commands;
@@ -10,7 +11,7 @@ public class GenerateOutfitCommandHandler(
     IUserRepository userRepository,
     IClothingRepository clothingRepository,
     IOutfitRepository outfitRepository,
-    OutfitGenerator outfitGenerator,
+    IOutfitGenerator outfitGenerator,
     IValidator<GenerateOutfitCommand> validator) : IRequestHandler<GenerateOutfitCommand, OutfitDto>
 {
     public async Task<OutfitDto> Handle(GenerateOutfitCommand request, CancellationToken ct)
@@ -23,15 +24,25 @@ public class GenerateOutfitCommandHandler(
             throw new InvalidOperationException($"User with ID {request.UserId} was not found.");
         }
 
-        var allItems = await clothingRepository.GetByUserIdAsync(request.UserId, ct);
-        
-        var startItem = allItems.FirstOrDefault(i => i.Id == request.StartItemId);
-        if (startItem == null)
+
+        var aiResult = await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, 0.5, ct);
+
+        var itemsInDb = new List<ClothingItem>();
+        foreach (var item in aiResult.SelectedItems)
         {
-            throw new InvalidOperationException($"Start item with ID {request.StartItemId} was not found in the user's wardrobe.");
+            var dbItem = await clothingRepository.GetByIdAsync(item.Id, ct);
+            if (dbItem != null) itemsInDb.Add(dbItem);
         }
 
-        var outfit = outfitGenerator.Create(user, startItem, allItems);
+        var outfit = new Outfit
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Name = aiResult.Name,
+            IsAiGenerated = true,
+            Items = itemsInDb,
+            CreatedAt = DateTime.UtcNow
+        };
 
         await outfitRepository.AddAsync(outfit, ct);
 
@@ -41,7 +52,7 @@ public class GenerateOutfitCommandHandler(
             outfit.IsAiGenerated,
             outfit.CreatedAt,
             outfit.Items.Select(i => new ClothingItemDto(
-                i.Id, i.Name, i.Type, i.Color, i.ProcessedImageUrl, i.CreatedAt
+                i.Id, i.Name, i.Type, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl ?? string.Empty, i.CreatedAt
             )).ToList()
         );
     }

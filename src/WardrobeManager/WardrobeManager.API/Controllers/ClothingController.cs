@@ -16,12 +16,38 @@ public class ClothingController(IMediator mediator) : ControllerBase
         return Ok(items);
     }
 
+    [HttpPost("process")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Process([FromForm] IFormFile File, [FromForm] Guid UserId, [FromForm] string Name)
+    {
+        var result = await mediator.Send(new ProcessClothingCommand(File, UserId, Name));
+        return Ok(result);
+    }
+
+    [HttpPost("add")]
+    public async Task<IActionResult> Add([FromBody] AddClothingCommand command)
+    {
+        var item = await mediator.Send(command);
+        return Ok(item);
+    }
+
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> Upload([FromForm] IFormFile File, [FromForm] Guid UserId, [FromForm] string Name)
     {
-        // Explicitly reading from form fields to ensure maximum compatibility
-        var item = await mediator.Send(new UploadClothingCommand(File, UserId, Name));
+        // Keep for backward compatibility or direct upload
+        var processed = await mediator.Send(new ProcessClothingCommand(File, UserId, Name));
+        var item = await mediator.Send(new AddClothingCommand(
+            UserId, 
+            Name, 
+            processed.Type, 
+            processed.Color, 
+            processed.Gender, 
+            processed.Season, 
+            processed.Usage, 
+            processed.ProcessedImageB64, 
+            processed.Embedding));
+            
         return Ok(item);
     }
 

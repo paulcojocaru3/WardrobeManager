@@ -8,7 +8,7 @@ namespace WardrobeManager.Infrastructure.ExternalServices;
 
 public class MlService(HttpClient httpClient) : IMlService
 {
-    public async Task<(string? Type, string? Color, string? ProcessedImageB64)> ProcessClothingImageAsync(IFormFile file, CancellationToken ct = default)
+    public async Task<(string? Type, string? Color, string? ProcessedImageB64, float[]? Embedding, string? Gender, string? Season, string? Usage)> ProcessClothingImageAsync(IFormFile file, CancellationToken ct = default)
     {
         using var content = new MultipartFormDataContent();
         using var fileStream = file.OpenReadStream();
@@ -25,14 +25,18 @@ public class MlService(HttpClient httpClient) : IMlService
         string? finalType = result?.type ?? result?.label;
         string? finalColor = result?.color ?? "unknown";
 
-        return (finalType, finalColor, result?.processed_image_b64);
+        return (finalType, finalColor, result?.processed_image_b64, result?.embedding, result?.gender, result?.season, result?.usage);
     }
 
     private class MlApiResponse 
     { 
         public string? type { get; set; } 
         public string? color { get; set; } 
-        public string? label { get; set; } // Campul vechi
+        public string? label { get; set; } 
+        public string? gender { get; set; }
+        public string? season { get; set; }
+        public string? usage { get; set; }
         public string? processed_image_b64 { get; set; } 
+        public float[]? embedding { get; set; }
     }
 }
