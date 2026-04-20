@@ -15,6 +15,12 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateAsync(ClothingItem item, CancellationToken ct = default)
+    {
+        context.ClothingItems.Update(item);
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task DeleteAsync(ClothingItem item, CancellationToken ct = default)
     {
         context.ClothingItems.Remove(item);

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
+import StatsSection from '../components/StatsSection';
 
 const API_BASE_URL = 'http://localhost:5150/api'; 
 const CLOTHING_TYPES = ["TOP", "BOTTOM", "SHOES", "OUTERWEAR", "ACCESSORY"];
@@ -27,15 +28,16 @@ const DashboardPage = ({ user, onLogout }) => {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('clothes');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [editItemMode, setEditItemMode] = useState(false);
+  const [editItemData, setEditItemData] = useState(null);
   
   const [uploadModal, setUploadModal] = useState(false);
   const [uploadData, setUploadData] = useState({ file: null, name: '' });
   
-  // Validation Multi-step Modal
   const [validationModal, setValidationModal] = useState(false);
   const [validationData, setValidationData] = useState(null);
   const [originalPredictions, setOriginalPredictions] = useState(null);
-  const [currentStep, setCurrentStep] = useState(0); // 0: Type, 1: Color, 2: Gender, 3: Season, 4: Usage
+  const [currentStep, setCurrentStep] = useState(0); 
   const [validationSearchTerm, setValidationSearchTerm] = useState('');
   
   const [editModal, setEditModal] = useState(false);
@@ -43,19 +45,23 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const [aiModal, setAiModal] = useState(false);
   const [aiData, setAiData] = useState(null);
+  
+  // Custom Outfit State
+  const [customOutfitModal, setCustomOutfitModal] = useState(false);
+  const [customOutfitData, setCustomOutfitData] = useState({ name: '', itemIds: [] });
+  const [customOutfitTab, setCustomOutfitTab] = useState(0); 
+
   const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting...');
   const [cityModal, setCityModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [weatherInfo, setWeatherInfo] = useState(null);
   const [citySuggestions, setCitySuggestions] = useState([]);
-  const [selectedStyle, setSelectedStyle] = useState('Casual');
   const [styleSelectionModal, setStyleSelectionModal] = useState(false);
-  const [generationContext, setGenerationContext] = useState(null); // 'today' or 'item'
+  const [generationContext, setGenerationContext] = useState(null); 
 
   const fileInputRef = useRef(null);
   const userId = user?.id || user?.Id;
 
-  // Fetch dynamic city suggestions as user types in modal
   useEffect(() => {
     const searchCities = async () => {
       if (!searchTerm || searchTerm.length < 3) {
@@ -68,11 +74,10 @@ const DashboardPage = ({ user, onLogout }) => {
       } catch (e) { console.error("City search error", e); }
     };
 
-    const timeoutId = setTimeout(searchCities, 400); // Debounce
+    const timeoutId = setTimeout(searchCities, 400); 
     return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
-  // 1. Improved location detection with fallback and persistence
   useEffect(() => {
     const detectLocation = async () => {
       const savedCity = localStorage.getItem('userCity');
@@ -82,28 +87,23 @@ const DashboardPage = ({ user, onLogout }) => {
       }
 
       try {
-        console.log("Attempting location detection via ipapi.co...");
         const res = await axios.get('https://ipapi.co/json/');
         if (res.data && res.data.city) {
-          console.log("Detected city (ipapi):", res.data.city);
           setCity(res.data.city);
           localStorage.setItem('userCity', res.data.city);
         } else {
           throw new Error("Invalid response from ipapi");
         }
       } catch (e) {
-        console.warn("ipapi.co failed, trying ip-api.com fallback...", e.message);
         try {
           const res = await axios.get('http://ip-api.com/json/');
           if (res.data && res.data.city) {
-            console.log("Detected city (ip-api):", res.data.city);
             setCity(res.data.city);
             localStorage.setItem('userCity', res.data.city);
           } else {
             setCity('Bucharest');
           }
         } catch (e2) {
-          console.error("All location services failed", e2);
           setCity('Bucharest');
         }
       }
@@ -143,7 +143,6 @@ const DashboardPage = ({ user, onLogout }) => {
   const fetchClothes = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/clothing/${userId}`);
-      console.log("CLOTHES:", res.data);
       setClothes(Array.isArray(res.data) ? res.data : []);
     } catch (e) { console.error("Clothes error:", e); }
   };
@@ -151,7 +150,6 @@ const DashboardPage = ({ user, onLogout }) => {
   const fetchOutfits = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/outfits/user/${userId}`);
-      console.log("OUTFITS:", res.data);
       setOutfits(Array.isArray(res.data) ? res.data : []);
     } catch (e) { console.error("Outfits error:", e); }
   };
@@ -188,7 +186,12 @@ const DashboardPage = ({ user, onLogout }) => {
 
     try {
       const { data } = await axios.post(`${API_BASE_URL}/outfits/generate-ai`, { 
-        userId, startItemId: startItem.id, threshold: 0.5, city, style 
+        userId, 
+        startItemId: startItem.id, 
+        threshold: 0.5, 
+        city, 
+        style,
+        season: weatherInfo?.seasonSuggestion 
       });
       setAiData(data);
       setAiModal(true);
@@ -258,10 +261,7 @@ const DashboardPage = ({ user, onLogout }) => {
       await axios.post(`${API_BASE_URL}/clothing/add`, payload);
       setValidationModal(false);
       fetchClothes();
-    } catch (err) { 
-      console.error(err);
-      alert("Save failed"); 
-    }
+    } catch (err) { alert("Save failed"); }
     finally { setLoading(false); }
   };
 
@@ -269,70 +269,23 @@ const DashboardPage = ({ user, onLogout }) => {
     if (!validationData || !originalPredictions) return null;
 
     const steps = [
-      { 
-        label: 'TYPE', 
-        value: validationData.type, 
-        options: CLOTHING_TYPES,
-        field: 'type',
-        isEnum: true,
-        original: originalPredictions.type
-      },
-      { 
-        label: 'COLOR', 
-        value: validationData.color, 
-        options: COLORS, 
-        field: 'color', 
-        isSearchable: true,
-        original: originalPredictions.color
-      },
-      { 
-        label: 'GENDER', 
-        value: validationData.gender, 
-        options: GENDERS, 
-        field: 'gender',
-        original: originalPredictions.gender
-      },
-      { 
-        label: 'SEASON', 
-        value: validationData.season, 
-        options: SEASONS, 
-        field: 'season', 
-        isMulti: true,
-        original: originalPredictions.season
-      },
-      { 
-        label: 'USAGE', 
-        value: validationData.usage, 
-        options: USAGES, 
-        field: 'usage', 
-        isMulti: true,
-        original: originalPredictions.usage
-      }
+      { label: 'TYPE', value: validationData.type, options: CLOTHING_TYPES, field: 'type', isEnum: true, original: originalPredictions.type },
+      { label: 'COLOR', value: validationData.color, options: COLORS, field: 'color', isSearchable: true, original: originalPredictions.color },
+      { label: 'GENDER', value: validationData.gender, options: GENDERS, field: 'gender', original: originalPredictions.gender },
+      { label: 'SEASON', value: validationData.season, options: SEASONS, field: 'season', isMulti: true, original: originalPredictions.season },
+      { label: 'USAGE', value: validationData.usage, options: USAGES, field: 'usage', isMulti: true, original: originalPredictions.usage }
     ];
 
     const step = steps[currentStep];
 
     const getSortedOptions = () => {
-      const { options, original, isEnum, label } = step;
-      let originalLabel = null;
-      
-      if (isEnum) {
-        // Handle TYPE enum mapping
-        originalLabel = typeof original === 'number' ? CLOTHING_TYPES[original] : original;
-      } else {
-        originalLabel = original;
-      }
-
+      const { options, original, isEnum } = step;
+      let originalLabel = isEnum ? (typeof original === 'number' ? CLOTHING_TYPES[original] : original) : original;
       if (!originalLabel) return options;
-      
-      // Make sure we only put the prediction at the top IF it exists in the current options list
-      const cleanOriginal = typeof originalLabel === 'string' ? originalLabel : String(originalLabel);
+      const cleanOriginal = String(originalLabel);
       const matchedOption = options.find(o => o.toLowerCase() === cleanOriginal.toLowerCase());
-      
       if (!matchedOption) return options;
-      
-      const others = options.filter(o => o.toLowerCase() !== matchedOption.toLowerCase());
-      return [matchedOption, ...others];
+      return [matchedOption, ...options.filter(o => o.toLowerCase() !== matchedOption.toLowerCase())];
     };
 
     const sortedOptions = getSortedOptions();
@@ -346,146 +299,52 @@ const DashboardPage = ({ user, onLogout }) => {
            <img 
             src={`data:image/png;base64,${validationData.processedImageB64}`} 
             alt="Processed" 
-            style={{ 
-              maxWidth: '100%', 
-              maxHeight: '250px', 
-              borderRadius: '20px', 
-              border: '1px solid #f5f5f5', 
-              padding: '10px', 
-              background: '#fcfcfc',
-              objectFit: 'contain' // Prevents stretching
-            }} 
+            style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '20px', border: '1px solid #f5f5f5', padding: '10px', background: '#fcfcfc', objectFit: 'contain' }} 
           />
         </div>
         
         <div className="step-indicator" style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '30px' }}>
           {steps.map((_, i) => (
-            <div key={i} style={{ 
-              width: '30px', 
-              height: '3px', 
-              background: i === currentStep ? '#000' : (i < currentStep ? '#eee' : '#f5f5f5'),
-              borderRadius: '2px',
-              transition: 'all 0.3s'
-            }} />
+            <div key={i} style={{ width: '30px', height: '3px', background: i === currentStep ? '#000' : (i < currentStep ? '#eee' : '#f5f5f5'), borderRadius: '2px', transition: 'all 0.3s' }} />
           ))}
         </div>
 
         <div style={{ marginBottom: '30px', textAlign: 'left' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <span className="robotic-text" style={{ fontSize: '0.6rem', color: '#ccc' }}>
-              STEP {currentStep + 1} OF 5: VERIFY {step.label}
-            </span>
-            {step.isMulti && (
-              <span className="robotic-text" style={{ fontSize: '0.55rem', color: '#646cff' }}>
-                (MULTI-SELECT)
-              </span>
-            )}
+            <span className="robotic-text" style={{ fontSize: '0.6rem', color: '#ccc' }}>STEP {currentStep + 1} OF 5: VERIFY {step.label}</span>
           </div>
           
           {step.isSearchable && (
             <div style={{ marginBottom: '15px' }}>
-              <input 
-                type="text" 
-                placeholder={`Search ${step.label.toLowerCase()}...`}
-                className="name-input"
-                style={{ marginBottom: '10px', fontSize: '0.8rem', textAlign: 'left', padding: '10px 20px' }}
-                value={validationSearchTerm}
-                onChange={e => setValidationSearchTerm(e.target.value)}
-                autoFocus
-              />
+              <input type="text" placeholder={`Search...`} className="name-input" style={{ marginBottom: '10px', fontSize: '0.8rem', textAlign: 'left', padding: '10px 20px' }} value={validationSearchTerm} onChange={e => setValidationSearchTerm(e.target.value)} autoFocus />
             </div>
           )}
 
-          <div className="options-grid" style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', 
-            gap: '12px',
-            maxHeight: '220px',
-            overflowY: 'auto',
-            padding: '15px',
-            background: '#fcfcfc',
-            border: '1px solid #f5f5f5',
-            borderRadius: '15px'
-          }}>
+          <div className="options-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', maxHeight: '220px', overflowY: 'auto', padding: '15px', background: '#fcfcfc', border: '1px solid #f5f5f5', borderRadius: '15px' }}>
             {filteredOptions.map(opt => {
-              const isSelected = step.isMulti
-                ? validationData[step.field].includes(opt)
-                : (step.isEnum 
-                    ? (typeof validationData.type === 'number' ? CLOTHING_TYPES[validationData.type] === opt : validationData.type === opt)
-                    : validationData[step.field] === opt);
-                
-              const isAiPrediction = step.isEnum 
-                ? (CLOTHING_TYPES[originalPredictions.type] === opt)
-                : (originalPredictions[step.field] === opt);
-
+              const isSelected = step.isMulti ? validationData[step.field].includes(opt) : (step.isEnum ? (typeof validationData.type === 'number' ? CLOTHING_TYPES[validationData.type] === opt : validationData.type === opt) : validationData[step.field] === opt);
+              const isAiPrediction = step.isEnum ? (CLOTHING_TYPES[originalPredictions.type] === opt) : (originalPredictions[step.field] === opt);
               return (
-                <button 
-                  key={opt}
-                  onClick={() => {
-                    if (step.isMulti) {
-                      const currentArray = validationData[step.field];
-                      const newArray = currentArray.includes(opt)
-                        ? currentArray.filter(i => i !== opt)
-                        : [...currentArray, opt];
-                      setValidationData({ ...validationData, [step.field]: newArray });
-                    } else {
-                      const newValue = step.isEnum ? CLOTHING_TYPES.indexOf(opt) : opt;
-                      setValidationData({ ...validationData, [step.field]: newValue });
-                      if (step.isSearchable) setValidationSearchTerm('');
-                    }
-                  }}
-                  style={{
-                    padding: '10px 5px',
-                    fontSize: '0.6rem',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    background: isSelected ? '#000' : '#fff',
-                    border: isSelected ? '1px solid #000' : (isAiPrediction ? '1px dashed #646cff' : '1px solid #eee'),
-                    color: isSelected ? '#fff' : (isAiPrediction ? '#646cff' : '#888'),
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px',
-                    transition: 'all 0.2s ease',
-                    boxShadow: isSelected ? '0 4px 10px rgba(0,0,0,0.1)' : 'none',
-                    position: 'relative'
-                  }}
-                >
+                <button key={opt} onClick={() => {
+                  if (step.isMulti) {
+                    const currentArray = validationData[step.field];
+                    setValidationData({ ...validationData, [step.field]: currentArray.includes(opt) ? currentArray.filter(i => i !== opt) : [...currentArray, opt] });
+                  } else {
+                    setValidationData({ ...validationData, [step.field]: step.isEnum ? CLOTHING_TYPES.indexOf(opt) : opt });
+                    if (step.isSearchable) setValidationSearchTerm('');
+                  }
+                }} style={{ padding: '10px 5px', fontSize: '0.6rem', fontFamily: 'JetBrains Mono, monospace', background: isSelected ? '#000' : '#fff', border: isSelected ? '1px solid #000' : (isAiPrediction ? '1px dashed #646cff' : '1px solid #eee'), color: isSelected ? '#fff' : (isAiPrediction ? '#646cff' : '#888'), borderRadius: '10px', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '1px', transition: 'all 0.2s ease', position: 'relative' }}>
                   {opt}
-                  {isAiPrediction && !isSelected && (
-                    <span style={{ position: 'absolute', top: '-5px', right: '5px', fontSize: '8px', color: '#646cff', fontWeight: 'bold' }}>AI</span>
-                  )}
+                  {isAiPrediction && !isSelected && <span style={{ position: 'absolute', top: '-5px', right: '5px', fontSize: '8px', color: '#646cff', fontWeight: 'bold' }}>AI</span>}
                 </button>
               );
             })}
-            {filteredOptions.length === 0 && (
-              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '20px', color: '#ccc', fontSize: '0.7rem' }}>
-                No results found
-              </div>
-            )}
           </div>
         </div>
 
         <div className="modal-actions" style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
-          {currentStep > 0 && (
-            <button 
-              className="close-link" 
-              onClick={() => {
-                setValidationSearchTerm('');
-                setCurrentStep(currentStep - 1);
-              }}
-              style={{ flex: 1, padding: '12px' }}
-            >
-              BACK
-            </button>
-          )}
-          <button 
-            className="gen-btn" 
-            onClick={onConfirmStep} 
-            disabled={loading}
-            style={{ flex: 2, padding: '12px' }}
-          >
-            {loading ? 'SAVING...' : (currentStep === 4 ? "COMPLETE & SAVE" : "CONTINUE")}
-          </button>
+          {currentStep > 0 && <button className="close-link" onClick={() => { setValidationSearchTerm(''); setCurrentStep(currentStep - 1); }} style={{ flex: 1, padding: '12px' }}>BACK</button>}
+          <button className="gen-btn" onClick={onConfirmStep} disabled={loading} style={{ flex: 2, padding: '12px' }}>{loading ? 'SAVING...' : (currentStep === 4 ? "COMPLETE & SAVE" : "CONTINUE")}</button>
         </div>
       </div>
     );
@@ -495,12 +354,7 @@ const DashboardPage = ({ user, onLogout }) => {
     setLoading(true);
     try {
       const itemIds = aiData.selectedItems.map(i => i.id);
-      await axios.post(`${API_BASE_URL}/outfits`, { 
-        userId, 
-        name: aiData.name, 
-        itemIds,
-        isAiGenerated: true 
-      });
+      await axios.post(`${API_BASE_URL}/outfits`, { userId, name: aiData.name, itemIds, isAiGenerated: true });
       setAiModal(false);
       setView('outfits');
       fetchOutfits();
@@ -510,13 +364,9 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const onSelectAiCandidate = (type, candidate) => {
     const newSelectedItems = aiData.selectedItems.map(item => {
-      // Find item of the same type (this logic is a bit simple as it relies on cloth object which we don't have fully in SimilarItemDto)
-      // Actually, we can check the recommendation type
       const clothItem = clothes.find(c => c.id === item.id);
       const candidateItem = clothes.find(c => c.id === candidate.id);
-      if (clothItem && candidateItem && clothItem.type === candidateItem.type) {
-        return candidate;
-      }
+      if (clothItem && candidateItem && clothItem.type === candidateItem.type) return candidate;
       return item;
     });
     setAiData({ ...aiData, selectedItems: newSelectedItems });
@@ -532,12 +382,63 @@ const DashboardPage = ({ user, onLogout }) => {
     finally { setLoading(false); }
   };
 
+  const onUpdateItem = async () => {
+    setLoading(true);
+    try {
+      await axios.put(`${API_BASE_URL}/clothing/${editItemData.id}`, {
+        ...editItemData,
+        type: typeof editItemData.type === 'string' ? CLOTHING_TYPES.indexOf(editItemData.type.toUpperCase()) : editItemData.type,
+        season: Array.isArray(editItemData.season) ? editItemData.season.join(', ') : editItemData.season,
+        usage: Array.isArray(editItemData.usage) ? editItemData.usage.join(', ') : editItemData.usage,
+        userId
+      });
+      setEditItemMode(false);
+      setSelectedItem(null);
+      fetchClothes();
+    } catch (err) { alert("Update failed"); }
+    finally { setLoading(false); }
+  };
+
   const onDelete = async (type, id) => {
     try {
       const endpoint = type === 'cloth' ? `clothing/${id}` : `outfits/${id}`;
       await axios.delete(`${API_BASE_URL}/${endpoint}`);
       type === 'cloth' ? fetchClothes() : fetchOutfits();
     } catch (err) { alert("Delete failed"); }
+  };
+
+  const onWearOutfit = async (outfitId) => {
+    try {
+      await axios.post(`${API_BASE_URL}/wear-events/outfit/${outfitId}`, {
+        userId: userId
+      });
+      alert("Outfit recorded for today!");
+      refresh(); 
+    } catch (err) {
+      const msg = err.response?.data || "Failed to record wear event.";
+      console.error("Wear event error:", msg);
+      alert(msg);
+    }
+  };
+
+  const onSaveCustomOutfit = async () => {
+    if (!customOutfitData.name || customOutfitData.itemIds.length === 0) {
+      alert("Please provide a name and select at least one item.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await axios.post(`${API_BASE_URL}/outfits`, { 
+        userId, 
+        name: customOutfitData.name, 
+        itemIds: customOutfitData.itemIds,
+        isAiGenerated: false 
+      });
+      setCustomOutfitModal(false);
+      setCustomOutfitData({ name: '', itemIds: [] });
+      fetchOutfits();
+    } catch (err) { alert("Save failed"); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -547,85 +448,40 @@ const DashboardPage = ({ user, onLogout }) => {
         <div className="nav-links">
           <button className={`nav-btn ${view === 'clothes' ? 'active' : ''}`} onClick={() => setView('clothes')}>clothes</button>
           <button className={`nav-btn ${view === 'outfits' ? 'active' : ''}`} onClick={() => setView('outfits')}>outfits</button>
+          <button className={`nav-btn ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>stats</button>
         </div>
         <button className="exit-circle" onClick={onLogout}></button>
       </aside>
 
       <main className="stage">
         <div className="centered-content">
-          <h2 className="soft-title">{view === 'clothes' ? 'your wardrobe' : 'generated outfits'}</h2>
+          <h2 className="soft-title">
+            {view === 'clothes' ? 'your wardrobe' : view === 'outfits' ? 'generated outfits' : 'wardrobe insights'}
+          </h2>
           
-          {/* WEATHER BAR */}
-          <div className="weather-bar" style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            ...getWeatherStyles(),
-            padding: '20px 30px',
-            borderRadius: '20px',
-            marginBottom: '30px',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
-            transition: 'all 0.5s ease',
-            border: 'none',
-            color: getWeatherStyles().color || '#fff'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '30px' }}>
-              <div 
-                style={{ textAlign: 'left', cursor: 'pointer' }} 
-                onClick={() => {
-                  setSearchTerm('');
-                  setCityModal(true);
-                }}
-              >
-                <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>LOCATION (EDIT)</span>
-                <span style={{ 
-                  fontSize: '1.4rem', 
-                  fontWeight: '900',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                  borderBottom: '2px solid rgba(0,0,0,0.1)'
-                }}>
-                  {city}
-                </span>
+          {view !== 'stats' && (
+            <div className="weather-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...getWeatherStyles(), padding: '20px 30px', borderRadius: '20px', marginBottom: '30px', boxShadow: '0 10px 30px rgba(0,0,0,0.15)', color: getWeatherStyles().color || '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '30px' }}>
+                <div style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => { setSearchTerm(''); setCityModal(true); }}>
+                  <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>LOCATION (EDIT)</span>
+                  <span style={{ fontSize: '1.4rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '2px solid rgba(0,0,0,0.1)' }}>{city}</span>
+                </div>
+                {weatherInfo && (
+                  <>
+                    <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
+                      <span style={{ fontSize: '1.4rem', fontWeight: '900' }}>{weatherInfo.temperature.toFixed(0)}°C</span>
+                      <span style={{ fontSize: '0.9rem', marginLeft: '10px', fontWeight: 'bold', opacity: 0.8, textTransform: 'uppercase' }}>{weatherInfo.condition}</span>
+                    </div>
+                    <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
+                      <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>RECOMMENDED SEASON</span>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', textTransform: 'uppercase' }}>{weatherInfo.seasonSuggestion}</span>
+                    </div>
+                  </>
+                )}
               </div>
-              {weatherInfo && (
-                <>
-                  <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
-                    <span style={{ fontSize: '1.4rem', fontWeight: '900' }}>{weatherInfo.temperature.toFixed(0)}°C</span>
-                    <span style={{ fontSize: '0.9rem', marginLeft: '10px', fontWeight: 'bold', opacity: 0.8, textTransform: 'uppercase' }}>{weatherInfo.condition}</span>
-                  </div>
-                  <div style={{ borderLeft: '2px solid rgba(0,0,0,0.1)', paddingLeft: '25px', textAlign: 'left' }}>
-                    <span className="robotic-text" style={{ fontSize: '0.65rem', opacity: 0.7, display: 'block', fontWeight: 'bold' }}>RECOMMENDED SEASON</span>
-                    <span style={{ fontSize: '1.1rem', fontWeight: '900', textTransform: 'uppercase' }}>{weatherInfo.seasonSuggestion}</span>
-                  </div>
-                </>
-              )}
+              <button className="gen-btn" onClick={() => onGenerate()} disabled={loading || clothes.length === 0} style={{ padding: '12px 30px', fontSize: '0.8rem', background: '#000', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>GENERATE TODAY'S OUTFIT</button>
             </div>
-            <button 
-              className="gen-btn" 
-              onClick={() => {
-                setGenerationContext('today');
-                setStyleSelectionModal(true);
-              }}
-              disabled={loading || clothes.length === 0}
-              style={{ 
-                padding: '12px 30px', 
-                fontSize: '0.8rem', 
-                background: '#000', 
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
-                fontWeight: 'bold',
-                boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-                cursor: 'pointer',
-                transition: 'transform 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-              onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-            >
-              GENERATE TODAY'S OUTFIT
-            </button>
-          </div>
+          )}
 
           {view === 'clothes' ? (
             <div className="wardrobe-container">
@@ -633,7 +489,7 @@ const DashboardPage = ({ user, onLogout }) => {
                 <div className="empty-state-card" onClick={() => fileInputRef.current.click()}>+ ADD NEW ITEM</div>
               </div>
               {CLOTHING_TYPES.map((typeName, typeIndex) => {
-                const filtered = clothes.filter(i => i.type === typeIndex || i.type === typeName);
+                const filtered = clothes.filter(i => i.type === typeIndex);
                 if (filtered.length === 0) return null;
                 return (
                   <div key={typeName} className="category-section">
@@ -651,19 +507,26 @@ const DashboardPage = ({ user, onLogout }) => {
                 );
               })}
             </div>
-          ) : (
+          ) : view === 'outfits' ? (
             <div className="outfits-list">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '30px' }}>
+                <button 
+                  className="gen-btn"
+                  onClick={() => setCustomOutfitModal(true)}
+                  style={{ padding: '12px 30px', fontSize: '0.8rem', background: '#fff', color: '#000', border: '2px solid #000', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  + CREATE CUSTOM OUTFIT
+                </button>
+              </div>
               {outfits.map(o => (
                 <div key={o.id} className="outfit-row">
                   <div className="outfit-info">
                     <div className="outfit-header-left">
                       <span className="outfit-name">{o.name}</span>
-                      <button className="edit-mini-btn" onClick={() => {
-                        setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [] });
-                        setEditModal(true);
-                      }}>edit items</button>
+                      <button className="edit-mini-btn" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [] }); setEditModal(true); }}>edit items</button>
                     </div>
                     <div className="outfit-actions">
+                      <button onClick={() => onWearOutfit(o.id)} style={{ background: '#000', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 'bold', cursor: 'pointer' }}>WEAR TODAY</button>
                       <span className="outfit-date">{new Date(o.createdAt).toLocaleDateString()}</span>
                       <Button label="remove" variant="danger" onClick={() => onDelete('outfit', o.id)} />
                     </div>
@@ -678,17 +541,10 @@ const DashboardPage = ({ user, onLogout }) => {
                 </div>
               ))}
             </div>
+          ) : (
+            <StatsSection userId={userId} />
           )}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={(e) => {
-              const file = e.target.files[0];
-              if (file) { setUploadData({ file, name: file.name.split('.')[0] }); setUploadModal(true); }
-            }} 
-            accept=".jpg,.jpeg,.png,.webp" 
-            hidden 
-          />
+          <input type="file" ref={fileInputRef} onChange={(e) => { const file = e.target.files[0]; if (file) { setUploadData({ file, name: file.name.split('.')[0] }); setUploadModal(true); } }} accept=".jpg,.jpeg,.png,.webp" hidden />
         </div>
       </main>
 
@@ -725,108 +581,142 @@ const DashboardPage = ({ user, onLogout }) => {
         </div>
       </Modal>
 
-      <Modal isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} title={selectedItem?.name} size="medium">
+      <Modal isOpen={!!selectedItem} onClose={() => { setSelectedItem(null); setEditItemMode(false); }} title={editItemMode ? `Editing ${selectedItem?.name}` : selectedItem?.name} size="medium">
         {selectedItem && (
-          <div style={{ 
-            maxHeight: '80vh', 
-            overflowY: 'auto', 
-            padding: '10px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px'
-          }}>
+          <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ textAlign: 'center', background: '#fcfcfc', borderRadius: '20px', padding: '15px', border: '1px solid #f5f5f5' }}>
-              <img 
-                src={selectedItem.processedImageUrl} 
-                alt="" 
-                style={{ 
-                  maxWidth: '100%', 
-                  maxHeight: '350px', 
-                  borderRadius: '15px',
-                  objectFit: 'contain'
-                }} 
-              />
+              <img src={selectedItem.processedImageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '350px', borderRadius: '15px', objectFit: 'contain' }} />
             </div>
 
-            <div className="inspect-grid" style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(2, 1fr)', 
-              gap: '10px' 
-            }}>
-              <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
-                <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>TYPE</span>
-                <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{CLOTHING_TYPES[selectedItem.type] || selectedItem.type}</span>
+            {editItemMode ? (
+              <div className="inspect-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>NAME</span>
+                  <input className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.name} onChange={e => setEditItemData({...editItemData, name: e.target.value})} />
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>TYPE</span>
+                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={typeof editItemData.type === 'number' ? CLOTHING_TYPES[editItemData.type] : editItemData.type} onChange={e => setEditItemData({...editItemData, type: CLOTHING_TYPES.indexOf(e.target.value)})}>
+                    {CLOTHING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>COLOR</span>
+                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.color} onChange={e => setEditItemData({...editItemData, color: e.target.value})}>
+                    {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>GENDER</span>
+                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.gender} onChange={e => setEditItemData({...editItemData, gender: e.target.value})}>
+                    {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '10px' }}>SEASON (MULTI-SELECT)</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {SEASONS.map(s => {
+                      const isSelected = editItemData.season.includes(s);
+                      return (
+                        <button 
+                          key={s} 
+                          onClick={() => {
+                            const newSeasons = isSelected ? editItemData.season.filter(item => item !== s) : [...editItemData.season, s];
+                            setEditItemData({...editItemData, season: newSeasons});
+                          }}
+                          style={{
+                            padding: '6px 12px', fontSize: '0.6rem', borderRadius: '8px', border: isSelected ? '1px solid #000' : '1px solid #eee',
+                            background: isSelected ? '#000' : '#fff', color: isSelected ? '#fff' : '#888', cursor: 'pointer', fontFamily: 'JetBrains Mono'
+                          }}
+                        >{s.toUpperCase()}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '10px' }}>USAGE / STYLE (MULTI-SELECT)</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {USAGES.map(u => {
+                      const isSelected = editItemData.usage.includes(u);
+                      return (
+                        <button 
+                          key={u} 
+                          onClick={() => {
+                            const newUsage = isSelected ? editItemData.usage.filter(item => item !== u) : [...editItemData.usage, u];
+                            setEditItemData({...editItemData, usage: newUsage});
+                          }}
+                          style={{
+                            padding: '6px 12px', fontSize: '0.6rem', borderRadius: '8px', border: isSelected ? '1px solid #000' : '1px solid #eee',
+                            background: isSelected ? '#000' : '#fff', color: isSelected ? '#fff' : '#888', cursor: 'pointer', fontFamily: 'JetBrains Mono'
+                          }}
+                        >{u.toUpperCase()}</button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
-                <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>COLOR</span>
-                <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.color?.toUpperCase()}</span>
+            ) : (
+              <div className="inspect-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>TYPE</span>
+                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{CLOTHING_TYPES[selectedItem.type] || selectedItem.type}</span>
+                </div>
+                <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>COLOR</span>
+                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.color?.toUpperCase()}</span>
+                </div>
+                <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>GENDER</span>
+                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.gender?.toUpperCase() || 'UNISEX'}</span>
+                </div>
+                <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>SEASON</span>
+                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.season?.toUpperCase() || 'ANY'}</span>
+                </div>
+                <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5', gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>USAGE</span>
+                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.usage?.toUpperCase() || 'CASUAL'}</span>
+                </div>
               </div>
-              <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
-                <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>GENDER</span>
-                <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.gender?.toUpperCase() || 'UNISEX'}</span>
-              </div>
-              <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5' }}>
-                <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>SEASON</span>
-                <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.season?.toUpperCase() || 'ANY'}</span>
-              </div>
-              <div style={{ background: '#fcfcfc', padding: '12px', borderRadius: '12px', border: '1px solid #f5f5f5', gridColumn: 'span 2' }}>
-                <span style={{ fontSize: '0.55rem', color: '#ccc', display: 'block', marginBottom: '4px' }}>USAGE</span>
-                <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.usage?.toUpperCase() || 'CASUAL'}</span>
-              </div>
-            </div>
+            )}
 
             <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
-              <button className="gen-btn" onClick={() => onGenerate(selectedItem)} disabled={loading} style={{ flex: 2 }}>
-                {loading ? 'GENERATING...' : 'GENERATE OUTFIT'}
-              </button>
-              <button className="close-link" onClick={() => setSelectedItem(null)} style={{ flex: 1 }}>
-                CLOSE
-              </button>
+              {editItemMode ? (
+                <>
+                  <button className="gen-btn" onClick={onUpdateItem} disabled={loading} style={{ flex: 2 }}>
+                    {loading ? 'SAVING...' : 'SAVE CHANGES'}
+                  </button>
+                  <button className="close-link" onClick={() => setEditItemMode(false)} style={{ flex: 1 }}>
+                    CANCEL
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="gen-btn" onClick={() => onGenerate(selectedItem)} disabled={loading} style={{ flex: 2 }}>
+                    {loading ? 'GENERATING...' : 'GENERATE OUTFIT'}
+                  </button>
+                  <button className="close-link" onClick={() => { 
+                    setEditItemData({
+                      ...selectedItem, 
+                      season: selectedItem.season ? selectedItem.season.split(',').map(s => s.trim()) : [],
+                      usage: selectedItem.usage ? selectedItem.usage.split(',').map(u => u.trim()) : []
+                    }); 
+                    setEditItemMode(true); 
+                  }} style={{ flex: 1 }}>
+                    EDIT
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
       </Modal>
 
-      {/* STYLE SELECTION MODAL */}
       <Modal isOpen={styleSelectionModal} onClose={() => setStyleSelectionModal(false)} title="SELECT OUTFIT STYLE" size="medium">
         <div style={{ padding: '10px' }}>
-          <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '20px', textAlign: 'center' }}>
-            Choose the occasion for your outfit. Our AI will filter items based on your style and today's weather.
-          </p>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(2, 1fr)', 
-            gap: '15px' 
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px' }}>
             {USAGES.map(style => (
-              <button
-                key={style}
-                onClick={() => executeGeneration(style)}
-                style={{
-                  padding: '20px',
-                  background: '#fff',
-                  color: '#000',
-                  border: '1px solid #eee',
-                  borderRadius: '15px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '10px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#000';
-                  e.currentTarget.style.color = '#fff';
-                  e.currentTarget.style.transform = 'translateY(-3px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
-                  e.currentTarget.style.color = '#000';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
+              <button key={style} onClick={() => executeGeneration(style)} style={{ padding: '20px', background: '#fff', color: '#000', border: '1px solid #eee', borderRadius: '15px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontWeight: '900', fontSize: '0.9rem', letterSpacing: '1px' }}>{style.toUpperCase()}</span>
               </button>
             ))}
@@ -837,129 +727,16 @@ const DashboardPage = ({ user, onLogout }) => {
       <Modal isOpen={aiModal} onClose={() => setAiModal(false)} title="AI OUTFIT SUGGESTION" size="large">
         {aiData && (
           <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px' }}>
-            
-            {/* OUTFIT NAME SECTION - INTUITIVE EDITING */}
-            <div style={{ marginBottom: '30px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '20px' }}>
-              <span className="robotic-text" style={{ fontSize: '10px', opacity: 0.5, letterSpacing: '2px', display: 'block', marginBottom: '10px' }}>
-                OUTFIT CONFIGURATION ✎ <small style={{ opacity: 0.5, fontWeight: 'normal' }}>(CLICK NAME TO EDIT)</small>
-              </span>
-              <div className="editable-title-container" style={{ position: 'relative' }}>
-                <input 
-                  className="name-input" 
-                  style={{ 
-                    width: '100%', 
-                    fontSize: '28px', 
-                    background: 'rgba(255,255,255,0.03)', 
-                    border: '1px solid rgba(255,255,255,0.1)', 
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    transition: 'all 0.3s'
-                  }}
-                  value={aiData.name} 
-                  onChange={e => setAiData({...aiData, name: e.target.value})} 
-                  onFocus={(e) => e.target.style.borderColor = '#646cff'}
-                  onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                />
-              </div>
+            <input className="name-input" value={aiData.name} onChange={e => setAiData({...aiData, name: e.target.value})} style={{ width: '100%', fontSize: '24px', marginBottom: '20px' }} />
+            <div className="clothes-grid">
+              {aiData.selectedItems.map(item => (
+                <div key={item.id} className="item-card"><img src={item.processedImageUrl} alt="" /></div>
+              ))}
             </div>
-
-            {/* THE LOOK - RESULT SECTION */}
-            <div className="category-section" style={{ marginBottom: '40px' }}>
-              <h3 className="category-title" style={{ fontSize: '14px', marginBottom: '20px' }}>THE LOOK</h3>
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', 
-                gap: '20px',
-                background: 'rgba(255,255,255,0.02)',
-                padding: '25px',
-                borderRadius: '15px',
-                border: '1px solid rgba(255,255,255,0.05)'
-              }}>
-                {aiData.selectedItems.map(item => (
-                  <div key={item.id} className="item-card" style={{ cursor: 'default', height: '160px' }}>
-                    <img src={item.processedImageUrl} alt="" />
-                    <span className="item-name-tag" style={{ fontSize: '10px' }}>
-                      {item.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* REFINEMENTS - ALTERNATIVES SECTION - ENLARGED IMAGES */}
-            <div className="category-section">
-              <h3 className="category-title" style={{ fontSize: '14px', marginBottom: '20px', opacity: 0.6 }}>WE MAY RECOMMEND YOU THIS:</h3>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                {aiData.recommendationsPerType.map(rec => (
-                  <div key={rec.type} style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '40px', 
-                    padding: '15px',
-                    borderBottom: '1px solid rgba(255,255,255,0.03)'
-                  }}>
-                    <div style={{ width: '120px', flexShrink: 0 }}>
-                      <span className="robotic-text" style={{ fontSize: '12px', color: '#646cff', fontWeight: 'bold' }}>
-                        {CLOTHING_TYPES[rec.type] || rec.type}
-                      </span>
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: '20px' }}>
-                      {rec.topCandidates.map(cand => {
-                        const isActive = aiData.selectedItems.some(si => si.id === cand.id);
-                        return (
-                          <div 
-                            key={cand.id} 
-                            onClick={() => onSelectAiCandidate(rec.type, cand)}
-                            className={`item-card ${isActive ? 'active' : ''}`}
-                            style={{ 
-                              width: '100px', 
-                              height: '130px', 
-                              opacity: isActive ? 1 : 0.45,
-                              border: isActive ? '2px solid #646cff' : '1px solid rgba(255,255,255,0.1)',
-                              transform: isActive ? 'scale(1.1)' : 'none',
-                              transition: 'all 0.3s ease',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <img src={cand.processedImageUrl} alt="" style={{ height: '95px' }} />
-                            <div style={{ 
-                              position: 'absolute', 
-                              top: '-8px', 
-                              right: '-8px', 
-                              background: '#646cff', 
-                              borderRadius: '50%', 
-                              width: '20px', 
-                              height: '20px', 
-                              display: isActive ? 'flex' : 'none',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '12px',
-                              boxShadow: '0 0 10px rgba(100, 108, 255, 0.5)',
-                              zIndex: 2
-                            }}>✓</div>
-                            <span className="item-name-tag" style={{ fontSize: '9px', padding: '4px' }}>
-                              {(cand.similarityScore * 100).toFixed(0)}%
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ACTION FOOTER */}
-            <div className="modal-actions" style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
               <Button label="CONFIRM & SAVE" onClick={onSaveAiOutfit} loading={loading} />
               <Button label="DISCARD" variant="secondary" onClick={() => setAiModal(false)} />
             </div>
-
           </div>
         )}
       </Modal>
@@ -968,61 +745,89 @@ const DashboardPage = ({ user, onLogout }) => {
         {renderValidationStep()}
       </Modal>
 
-      {/* CITY SELECTION MODAL */}
       <Modal isOpen={cityModal} onClose={() => setCityModal(false)} title="SELECT LOCATION" size="small">
         <div style={{ padding: '10px' }}>
-          <input 
-            className="name-input"
-            placeholder="Type city name (e.g. Iasi)..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            autoFocus
-            style={{ marginBottom: '20px', textAlign: 'left', padding: '12px 20px' }}
-          />
-          
-          <div style={{ 
-            maxHeight: '300px', 
-            overflowY: 'auto', 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: '8px' 
-          }}>
+          <input className="name-input" placeholder="Type city..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
+          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
             {citySuggestions.map((c, idx) => (
-              <button
-                key={`${c.name}-${idx}`}
-                onClick={() => {
-                  handleCityChange(c.name);
-                  setCityModal(false);
-                }}
-                style={{
-                  padding: '15px',
-                  background: 'rgba(0,0,0,0.03)',
-                  border: '1px solid rgba(0,0,0,0.05)',
-                  borderRadius: '12px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(100, 108, 255, 0.1)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(0,0,0,0.03)'}
-              >
-                <span style={{ fontWeight: 'bold', color: '#000' }}>{c.name}</span>
-                <span style={{ fontSize: '0.7rem', color: '#666' }}>{c.state ? `${c.state}, ` : ''}{c.country}</span>
+              <button key={idx} onClick={() => { handleCityChange(c.name); setCityModal(false); }} style={{ width: '100%', padding: '10px', textAlign: 'left', background: 'none', border: '1px solid #eee', marginBottom: '5px' }}>
+                {c.name}, {c.country}
               </button>
             ))}
-            {searchTerm.length >= 3 && citySuggestions.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '0.8rem' }}>
-                Searching for results...
+          </div>
+        </div>
+      </Modal>
+
+      {/* CUSTOM OUTFIT MODAL */}
+      <Modal isOpen={customOutfitModal} onClose={() => setCustomOutfitModal(false)} title="BUILD CUSTOM OUTFIT" size="large">
+        <div className="edit-outfit-container">
+          <input 
+            className="name-input" 
+            placeholder="Name your outfit (e.g. Casual Friday)..." 
+            value={customOutfitData.name} 
+            onChange={e => setCustomOutfitData({...customOutfitData, name: e.target.value})} 
+          />
+          
+          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px' }}>
+            {CLOTHING_TYPES.map((type, idx) => (
+              <button 
+                key={type}
+                onClick={() => setCustomOutfitTab(idx)}
+                style={{ 
+                  padding: '8px 16px', 
+                  borderRadius: '20px', 
+                  border: 'none', 
+                  background: customOutfitTab === idx ? '#000' : '#eee', 
+                  color: customOutfitTab === idx ? '#fff' : '#888',
+                  fontSize: '0.7rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+
+          <div className="edit-items-grid" style={{ maxHeight: '400px', overflowY: 'auto', padding: '10px', border: '1px solid #f0f0f0', borderRadius: '15px' }}>
+            {clothes.filter(c => c.type === customOutfitTab).map(item => {
+              const isSelected = customOutfitData.itemIds.includes(item.id);
+              return (
+                <div key={item.id} className={`selectable-item ${isSelected ? 'selected' : ''}`} onClick={() => {
+                  if (isSelected) {
+                    setCustomOutfitData({...customOutfitData, itemIds: customOutfitData.itemIds.filter(id => id !== item.id)});
+                  } else {
+                    const sameType = clothes.find(c => customOutfitData.itemIds.includes(c.id) && c.type === item.type);
+                    const newIds = sameType ? [...customOutfitData.itemIds.filter(id => id !== sameType.id), item.id] : [...customOutfitData.itemIds, item.id];
+                    setCustomOutfitData({...customOutfitData, itemIds: newIds});
+                  }
+                }}>
+                  <img src={item.processedImageUrl} alt="" />
+                  <div className="check-badge">{isSelected ? '✓' : '+'}</div>
+                </div>
+              );
+            })}
+            {clothes.filter(c => c.type === customOutfitTab).length === 0 && (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px', color: '#ccc', fontSize: '0.8rem' }}>
+                No items in this category.
               </div>
             )}
-            {searchTerm.length < 3 && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '0.8rem' }}>
-                Enter at least 3 characters
-              </div>
-            )}
+          </div>
+          
+          <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '5px' }}>
+              {customOutfitData.itemIds.map(id => {
+                const item = clothes.find(c => c.id === id);
+                if (!item) return null;
+                return (
+                  <div key={id} style={{ width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', border: '1px solid #eee' }}>
+                    <img src={item.processedImageUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt=""/>
+                  </div>
+                )
+              })}
+            </div>
+            <Button label="SAVE OUTFIT" onClick={onSaveCustomOutfit} loading={loading} />
           </div>
         </div>
       </Modal>
