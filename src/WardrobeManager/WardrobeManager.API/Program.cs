@@ -46,6 +46,7 @@ builder.Services.AddValidatorsFromAssemblyContaining<RegisterUserCommandValidato
 builder.Services.AddScoped<IUserRepository, WardrobeManager.Infrastructure.Repositories.UserRepository>();
 builder.Services.AddScoped<IClothingRepository, WardrobeManager.Infrastructure.Repositories.ClothingRepository>();
 builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Repositories.OutfitRepository>();
+builder.Services.AddScoped<IWearEventRepository, WardrobeManager.Infrastructure.Repositories.WearEventRepository>();
 
 // Register Domain/Application Services
 builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();

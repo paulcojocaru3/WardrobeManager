@@ -24,7 +24,7 @@ public class ProcessClothingCommandHandler(
             gender,
             season,
             usage,
-            processedImageB64,
+            processedImageB64!,
             embedding
         );
     }

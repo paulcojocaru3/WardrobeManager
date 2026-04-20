@@ -57,4 +57,13 @@ public class ClothingController(IMediator mediator) : ControllerBase
         await mediator.Send(new DeleteClothingCommand(id));
         return Ok();
     }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateClothingCommand command)
+    {
+        if (id != command.Id) return BadRequest("ID mismatch");
+        var result = await mediator.Send(command);
+        if (!result) return NotFound();
+        return Ok();
+    }
 }
