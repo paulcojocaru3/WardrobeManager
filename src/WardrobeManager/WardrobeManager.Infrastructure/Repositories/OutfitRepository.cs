@@ -55,7 +55,6 @@ public class OutfitRepository(ApplicationDbContext context) : IOutfitRepository
 
     public async Task DeleteAsync(Outfit outfit, CancellationToken ct)
     {
-        context.Outfits.Remove(outfit);
-        await context.SaveChangesAsync(ct);
+        await context.Outfits.Where(o => o.Id == outfit.Id).ExecuteDeleteAsync(ct);
     }
 }

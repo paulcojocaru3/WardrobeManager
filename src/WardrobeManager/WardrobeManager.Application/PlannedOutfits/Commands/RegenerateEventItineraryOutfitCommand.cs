@@ -84,15 +84,8 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
             style: style,
             ct: ct);
 
-        var items = new List<ClothingItem>();
-        foreach (var selectedItem in aiResult.SelectedItems)
-        {
-            var item = await _clothingRepository.GetByIdAsync(selectedItem.Id, ct);
-            if (item != null)
-            {
-                items.Add(item);
-            }
-        }
+        var itemIds = aiResult.SelectedItems.Select(si => si.Id).ToList();
+        var items = await _clothingRepository.GetByIdsAsync(itemIds, ct);
 
         if (items.Count == 0)
         {

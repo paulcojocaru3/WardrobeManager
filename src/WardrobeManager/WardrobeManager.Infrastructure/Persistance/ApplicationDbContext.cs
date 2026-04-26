@@ -49,6 +49,11 @@ public class ApplicationDbContext : DbContext
                       (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
                       c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                       c => c.ToArray()));
+
+            // Add HNSW index for fast vector similarity search
+            entity.HasIndex(e => e.Embedding)
+                  .HasMethod("hnsw")
+                  .HasOperators("vector_cosine_ops");
         });
 
         // Outfit Configuration (Many-to-Many with ClothingItem)

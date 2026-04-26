@@ -48,8 +48,7 @@ public class PlannerEventRepository : IPlannerEventRepository
 
     public async Task DeleteAsync(PlannerEvent plannerEvent, CancellationToken cancellationToken = default)
     {
-        _context.PlannerEvents.Remove(plannerEvent);
-        await _context.SaveChangesAsync(cancellationToken);
+        await _context.PlannerEvents.Where(p => p.Id == plannerEvent.Id).ExecuteDeleteAsync(cancellationToken);
     }
 
     public async Task AddItineraryAsync(EventItinerary itinerary, CancellationToken cancellationToken = default)
