@@ -18,41 +18,41 @@
 }
 
 .custom-btn:disabled {
-  background: #eee;
-  color: #ccc;
+  background: var(--border-muted);
+  color: var(--fg-faint);
   cursor: not-allowed;
 }
 
 /* Variantele de stil */
 .custom-btn.primary {
-  background: #000;
-  color: #fff;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
 }
 
 .custom-btn.primary:hover:not(:disabled) {
-  background: #333;
+  background: var(--fg-subtle);
 }
 
 .custom-btn.secondary {
-  background: #fff;
-  color: #999;
-  border: 1px solid #f0f0f0;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-subtle);
 }
 
 .custom-btn.secondary:hover:not(:disabled) {
-  border-color: #000;
-  color: #000;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .custom-btn.danger {
-  background: #fff;
+  background: var(--bg-raised);
   color: #ff4d4d;
   border: 1px solid #ff4d4d;
 }
 
 .custom-btn.danger:hover:not(:disabled) {
   background: #ff4d4d;
-  color: #fff;
+  color: var(--bg);
 }
 
 /* Loading State */

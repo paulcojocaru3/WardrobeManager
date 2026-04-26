@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import Button from '../components/Button';
-
-const API_BASE_URL = 'http://localhost:5150/api'; 
+import { authApi } from '../services/wardrobeApi';
+import { getErrorMessage } from '../utils/errors';
 
 const AuthPage = ({ onLoginSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -15,12 +14,18 @@ const AuthPage = ({ onLoginSuccess }) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const endpoint = isLogin ? 'users/login' : 'users/register';
+
     try {
       const payload = isLogin ? { email, password } : { email, passwordHash: password, username: email.split('@')[0] };
-      const res = await axios.post(`${API_BASE_URL}/${endpoint}`, payload);
+
+      const res = isLogin
+        ? await authApi.login(payload)
+        : await authApi.register(payload);
+
       onLoginSuccess(res.data);
-    } catch (err) { setError("auth failed"); }
+    } catch (err) {
+      setError(getErrorMessage(err, 'auth failed'));
+    }
     finally { setLoading(false); }
   };
 

@@ -18,6 +18,14 @@ public class OutfitsController(IMediator mediator) : ControllerBase
         return Ok(weather);
     }
 
+    [HttpGet("weather/{city}/forecast")]
+    public async Task<IActionResult> GetForecast(string city, [FromQuery] int days = 14, [FromQuery] DateTime? startDate = null)
+    {
+        var weatherService = HttpContext.RequestServices.GetRequiredService<IWeatherService>();
+        var forecasts = await weatherService.GetForecastAsync(city, days, startDate);
+        return Ok(new { forecasts });
+    }
+
     [HttpGet("cities/search")]
     public async Task<IActionResult> SearchCities([FromQuery] string query)
     {

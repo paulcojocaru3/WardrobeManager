@@ -13,4 +13,5 @@ public class User
     public List<ClothingItem> ClothingItems { get; set; } = new();
     public List<Outfit> Outfits { get; set; } = new();
     public List<WearEvent> WearEvents { get; set; } = new();
+    public List<PlannerEvent> PlannerEvents { get; set; } = new();
 }

@@ -94,6 +94,37 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.ToTable("ClothingItems");
                 });
 
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.EventItinerary", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Moment")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OutfitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PlannerEventId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OutfitId");
+
+                    b.HasIndex("PlannerEventId");
+
+                    b.ToTable("EventItineraries");
+                });
+
             modelBuilder.Entity("WardrobeManager.Domain.Entities.Outfit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -118,6 +149,50 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Outfits");
+                });
+
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.PlannerEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PlannerEvents");
                 });
 
             modelBuilder.Entity("WardrobeManager.Domain.Entities.Recommendation", b =>
@@ -243,10 +318,40 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.EventItinerary", b =>
+                {
+                    b.HasOne("WardrobeManager.Domain.Entities.Outfit", "Outfit")
+                        .WithMany("EventItineraries")
+                        .HasForeignKey("OutfitId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WardrobeManager.Domain.Entities.PlannerEvent", "PlannerEvent")
+                        .WithMany("Itineraries")
+                        .HasForeignKey("PlannerEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Outfit");
+
+                    b.Navigation("PlannerEvent");
+                });
+
             modelBuilder.Entity("WardrobeManager.Domain.Entities.Outfit", b =>
                 {
                     b.HasOne("WardrobeManager.Domain.Entities.User", "User")
                         .WithMany("Outfits")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.PlannerEvent", b =>
+                {
+                    b.HasOne("WardrobeManager.Domain.Entities.User", "User")
+                        .WithMany("PlannerEvents")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -296,11 +401,23 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Navigation("WearEvents");
                 });
 
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.Outfit", b =>
+                {
+                    b.Navigation("EventItineraries");
+                });
+
+            modelBuilder.Entity("WardrobeManager.Domain.Entities.PlannerEvent", b =>
+                {
+                    b.Navigation("Itineraries");
+                });
+
             modelBuilder.Entity("WardrobeManager.Domain.Entities.User", b =>
                 {
                     b.Navigation("ClothingItems");
 
                     b.Navigation("Outfits");
+
+                    b.Navigation("PlannerEvents");
 
                     b.Navigation("WearEvents");
                 });

@@ -117,7 +117,7 @@ public class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQu
                     Id = g.Key, 
                     Name = outfit?.Name ?? "Unnamed Outfit",
                     Count = g.Select(e => e.WearDate.Date).Distinct().Count(),
-                    ItemImages = outfit?.Items.Select(i => i.ProcessedImageUrl).ToList() ?? new List<string>()
+                    ItemImages = outfit?.Items.Select(i => i.ProcessedImageUrl).Where(url => url != null).ToList()! ?? new List<string>()
                 };
             })
             .OrderByDescending(x => x.Count)
@@ -157,7 +157,7 @@ public class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQu
                         OutfitId = sessionGroup.First().OutfitId,
                         OutfitName = allOutfits.FirstOrDefault(o => o.Id == sessionGroup.First().OutfitId)?.Name ?? "Custom Look",
                         ExactTime = sessionGroup.Key,
-                        ItemImages = sessionGroup.Where(e => e.ClothingItem != null).Select(e => e.ClothingItem!.ProcessedImageUrl).ToList()
+                        ItemImages = sessionGroup.Where(e => e.ClothingItem != null).Select(e => e.ClothingItem!.ProcessedImageUrl).Where(url => url != null).ToList()!
                     })
                     .OrderByDescending(s => s.ExactTime)
                     .ToList()
