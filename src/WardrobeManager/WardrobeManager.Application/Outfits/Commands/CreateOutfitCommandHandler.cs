@@ -26,6 +26,7 @@ public class CreateOutfitCommandHandler(
             UserId = request.UserId,
             Name = request.Name,
             IsAiGenerated = request.IsAiGenerated,
+            IsEventExclusive = request.IsEventExclusive,
             Items = items,
             CreatedAt = DateTime.UtcNow
         };

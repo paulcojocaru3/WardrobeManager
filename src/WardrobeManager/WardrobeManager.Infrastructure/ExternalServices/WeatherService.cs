@@ -66,6 +66,77 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration)
         };
     }
 
+    public async Task<List<DailyForecast>> GetForecastAsync(string city, int days, DateTime? startDate = null, CancellationToken ct = default)
+    {
+        var start = startDate?.Date ?? DateTime.UtcNow.Date;
+
+        // For development, if no API key is provided, return mock forecast based on reasonable temperature
+        if (_apiKey == "YOUR_API_KEY_HERE" || string.IsNullOrEmpty(_apiKey))
+        {
+            // Return mock forecast with 22°C (Summer) - realistic for weekend
+            return Enumerable.Range(0, days)
+                .Select(i => new DailyForecast(start.AddDays(i), 22, "Clear", "Summer"))
+                .ToList();
+        }
+
+        try
+        {
+            // Use 5 day / 3 hour forecast API
+            var forecastUrl = $"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={_apiKey}&units=metric";
+            var response = await httpClient.GetFromJsonAsync<OpenWeatherForecastResponse>(forecastUrl, ct);
+            
+            if (response?.List == null || response.List.Count == 0)
+            {
+                return GetDefaultForecast(days, start);
+            }
+
+            // Group by day and take average
+            var dailyForecasts = response.List
+                .GroupBy(x => x.DtTxt.Date)
+                .Select(g => new DailyForecast(
+                    g.Key,
+                    g.Average(x => x.Main.Temp),
+                    g.First().Weather.FirstOrDefault()?.Main ?? "Unknown",
+                    MapTempToSeason((float)g.Average(x => x.Main.Temp))
+                ))
+                .ToList();
+
+            // Map to requested dates
+            var result = new List<DailyForecast>();
+            for (int i = 0; i < days; i++)
+            {
+                var targetDate = start.AddDays(i);
+                var forecast = dailyForecasts.FirstOrDefault(f => f.Date == targetDate);
+                
+                if (forecast != null)
+                {
+                    result.Add(forecast);
+                }
+                else
+                {
+                    // If no forecast available for this date (e.g. > 5 days in future), use the last available or default
+                    var fallbackTemp = dailyForecasts.LastOrDefault()?.Temperature ?? 22;
+                    var fallbackCondition = dailyForecasts.LastOrDefault()?.Condition ?? "Clear";
+                    result.Add(new DailyForecast(targetDate, fallbackTemp, fallbackCondition, MapTempToSeason(fallbackTemp)));
+                }
+            }
+
+            return result;
+        }
+        catch
+        {
+            return GetDefaultForecast(days, start);
+        }
+    }
+
+    private List<DailyForecast> GetDefaultForecast(int days, DateTime start)
+    {
+        // Default to reasonable summer temperature if API fails
+        return Enumerable.Range(0, days)
+            .Select(i => new DailyForecast(start.AddDays(i), 22, "Clear", "Summer"))
+            .ToList();
+    }
+
     private class OpenWeatherGeoResponse
     {
         public string Name { get; set; } = null!;
@@ -79,6 +150,27 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration)
         public List<WeatherInfo> Weather { get; set; } = null!;
     }
 
-    private class MainData { public float Temp { get; set; } }
-    private class WeatherInfo { public string Main { get; set; } = null!; }
+    private class MainData 
+    { 
+        [System.Text.Json.Serialization.JsonPropertyName("temp")]
+        public float Temp { get; set; } 
+    }
+    private class WeatherInfo 
+    { 
+        [System.Text.Json.Serialization.JsonPropertyName("main")]
+        public string Main { get; set; } = null!; 
+    }
+
+    private class OpenWeatherForecastResponse
+    {
+        public List<ForecastItem> List { get; set; } = new();
+    }
+
+    private class ForecastItem
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("dt_txt")]
+        public DateTime DtTxt { get; set; }
+        public MainData Main { get; set; } = null!;
+        public List<WeatherInfo> Weather { get; set; } = new();
+    }
 }

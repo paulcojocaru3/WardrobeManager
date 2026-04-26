@@ -13,6 +13,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClothingItem> ClothingItems { get; set; } = null!;
     public DbSet<Outfit> Outfits { get; set; } = null!;
     public DbSet<WearEvent> WearEvents { get; set; } = null!;
+    public DbSet<PlannerEvent> PlannerEvents { get; set; } = null!;
+    public DbSet<EventItinerary> EventItineraries { get; set; } = null!;
     public DbSet<Recommendation> Recommendations { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -79,6 +81,32 @@ public class ApplicationDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.OutfitId)
                   .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // PlannerEvent Configuration
+        modelBuilder.Entity<PlannerEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            
+            entity.HasOne(e => e.User)
+                  .WithMany(u => u.PlannerEvents)
+                  .HasForeignKey(e => e.UserId);
+        });
+
+        // EventItinerary Configuration
+        modelBuilder.Entity<EventItinerary>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            
+            entity.HasOne(e => e.PlannerEvent)
+                  .WithMany(p => p.Itineraries)
+                  .HasForeignKey(e => e.PlannerEventId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Outfit)
+                  .WithMany(o => o.EventItineraries)
+                  .HasForeignKey(e => e.OutfitId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Recommendation Configuration

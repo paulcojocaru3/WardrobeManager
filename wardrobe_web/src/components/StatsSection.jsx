@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import Modal from '../components/Modal';
 import './StatsSection.css';
-
-const API_BASE_URL = 'http://localhost:5150/api';
-const SEASON_ORDER = ['spring', 'summer', 'fall', 'winter'];
+import { statsApi } from '../services/wardrobeApi';
+import { getErrorMessage } from '../utils/errors';
+import { formatDate, formatTime, getCssColor, normalizeStatsResponse } from '../utils/wardrobeTransforms';
 
 const RANGE_OPTIONS = [
   { value: '7d', label: '7d' },
@@ -59,12 +58,8 @@ const StatsSection = ({ userId }) => {
   const isCustomRangeInvalid = isCustomRange && customStart && customEnd && customStart > customEnd;
   const canApplyCustomRange = isCustomRange && !isCustomRangeIncomplete && !isCustomRangeInvalid;
 
-  const fetchStats = async ({ manual = false } = {}) => {
+  const fetchStats = async () => {
     if (!userId) {
-      return;
-    }
-
-    if (isCustomRange && !manual) {
       return;
     }
 
@@ -79,11 +74,7 @@ const StatsSection = ({ userId }) => {
     }
 
     setRangeError('');
-    if (loading) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
+    setRefreshing(true);
 
     const params = {};
     if (selectedRange) {
@@ -96,11 +87,11 @@ const StatsSection = ({ userId }) => {
     }
 
     try {
-      const res = await axios.get(`${API_BASE_URL}/wear-events/stats/${userId}`, { params });
+      const res = await statsApi.getWearStats(userId, params);
       setStats(normalizeStatsResponse(res.data));
     } catch (error) {
-      const message = error.response?.data?.error || error.response?.data || 'Failed to load analytics.';
-      setRangeError(String(message));
+      setRangeError(getErrorMessage(error, 'Failed to load analytics.'));
+      setStats(DEFAULT_STATS);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -108,16 +99,28 @@ const StatsSection = ({ userId }) => {
   };
 
   useEffect(() => {
-    fetchStats({ manual: false });
-  }, [userId, selectedRange]);
-
-  useEffect(() => {
-    if (!rangeError) {
+    if (!userId || selectedRange === 'custom') {
       return;
     }
 
-    setRangeError('');
-  }, [customStart, customEnd]);
+    const runAutoFetch = async () => {
+      setRangeError('');
+      setRefreshing(true);
+
+      try {
+        const res = await statsApi.getWearStats(userId, { range: selectedRange });
+        setStats(normalizeStatsResponse(res.data));
+      } catch (error) {
+        setRangeError(getErrorMessage(error, 'Failed to load analytics.'));
+        setStats(DEFAULT_STATS);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    };
+
+    runAutoFetch();
+  }, [userId, selectedRange]);
 
   const topStyle = useMemo(() => {
     const entries = Object.entries(stats.styleDist || {});
@@ -163,7 +166,10 @@ const StatsSection = ({ userId }) => {
               type="button"
               key={option.value}
               className={selectedRange === option.value ? 'active' : ''}
-              onClick={() => setSelectedRange(option.value)}
+              onClick={() => {
+                setRangeError('');
+                setSelectedRange(option.value);
+              }}
               aria-label={`Set analytics range to ${option.label}`}
             >
               {option.label}
@@ -178,7 +184,10 @@ const StatsSection = ({ userId }) => {
               <input
                 type="date"
                 value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
+                onChange={(e) => {
+                  setRangeError('');
+                  setCustomStart(e.target.value);
+                }}
               />
             </label>
 
@@ -187,14 +196,17 @@ const StatsSection = ({ userId }) => {
               <input
                 type="date"
                 value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
+                onChange={(e) => {
+                  setRangeError('');
+                  setCustomEnd(e.target.value);
+                }}
               />
             </label>
 
             <button
               type="button"
               className="apply-btn"
-              onClick={() => fetchStats({ manual: true })}
+              onClick={fetchStats}
               disabled={!canApplyCustomRange || refreshing}
               aria-label="Apply custom date range"
             >
@@ -272,7 +284,7 @@ const StatsSection = ({ userId }) => {
                       <span>{item.utilizationRate.toFixed(0)}%</span>
                     </div>
                     <div className="bar-bg"><div className="bar-fill" style={{ width: `${item.utilizationRate}%` }} /></div>
-                    <small style={{ color: '#999', marginTop: '6px', display: 'block' }}>{item.wornItems}/{item.totalItems} worn • {item.wearCount} wear events</small>
+                    <small style={{ color: 'var(--fg-muted)', marginTop: '6px', display: 'block' }}>{item.wornItems}/{item.totalItems} worn • {item.wearCount} wear events</small>
                   </div>
                 ))}
               </div>
@@ -353,7 +365,7 @@ const StatsSection = ({ userId }) => {
                 {Object.entries(stats.styleDist).map(([s, p]) => (
                   <div key={s} className="style-row">
                     <div className="style-label"><span>{s.toUpperCase()}</span><span>{Number(p).toFixed(0)}%</span></div>
-                    <div className="bar-bg"><div className="bar-fill" style={{ width: `${p}%`, background: '#000' }} /></div>
+                    <div className="bar-bg"><div className="bar-fill" style={{ width: `${p}%`, background: 'var(--accent-bg)' }} /></div>
                   </div>
                 ))}
               </div>
@@ -378,7 +390,7 @@ const StatsSection = ({ userId }) => {
           <div className="stats-grid">
             <div className="stats-card">
               <h3>Favorite Outfits</h3>
-              <p style={{ fontSize: '0.65rem', color: '#ccc', marginBottom: '20px' }}>Tap to view items</p>
+              <p style={{ fontSize: '0.65rem', color: 'var(--fg-faint)', marginBottom: '20px' }}>Tap to view items</p>
               <div className="usage-list">
                 {stats.topOutfits.length === 0 && <p className="empty-line">No outfit wear sessions in selected range.</p>}
                 {stats.topOutfits.map((o) => (
@@ -389,7 +401,7 @@ const StatsSection = ({ userId }) => {
                     </div>
                     <div className="mini-thumbs-preview">
                       {o.images.slice(0, 3).map((img, idx) => (
-                        <img key={idx} src={img} alt={`${o.name} item ${idx + 1}`} style={{ width: '24px', height: '24px', borderRadius: '50%', border: '1px solid #fff', marginLeft: idx > 0 ? '-10px' : '0', objectFit: 'cover' }} />
+                        <img key={idx} src={img} alt={`${o.name} item ${idx + 1}`} style={{ width: '24px', height: '24px', borderRadius: '50%', border: '1px solid var(--bg)', marginLeft: idx > 0 ? '-10px' : '0', objectFit: 'cover' }} />
                       ))}
                     </div>
                   </div>
@@ -403,7 +415,7 @@ const StatsSection = ({ userId }) => {
                 {stats.monthlyActivity.length === 0 && <p className="empty-line">No monthly activity for selected range.</p>}
                 {stats.monthlyActivity.map((m) => (
                   <div key={m.month} className="v-bar-container">
-                    <div className="v-bar" style={{ height: `${(m.total / maxActivity) * 100}%`, background: '#000' }} title={`${m.total} outfit wears`} />
+                    <div className="v-bar" style={{ height: `${(m.total / maxActivity) * 100}%`, background: 'var(--accent-bg)' }} title={`${m.total} outfit wears`} />
                     <span className="v-label">{m.month.split(' ')[0]}</span>
                   </div>
                 ))}
@@ -468,7 +480,7 @@ const StatsSection = ({ userId }) => {
       <Modal isOpen={!!previewOutfit} onClose={() => setPreviewOutfit(null)} title={previewOutfit?.name} size="medium">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px', padding: '20px' }}>
           {previewOutfit?.images.map((img, i) => (
-            <div key={i} style={{ textAlign: 'center', background: '#fcfcfc', borderRadius: '15px', padding: '10px', border: '1px solid #f5f5f5' }}>
+            <div key={i} style={{ textAlign: 'center', background: 'var(--bg-subtle)', borderRadius: '15px', padding: '10px', border: '1px solid var(--border-subtle)' }}>
               <img src={img} alt={`${previewOutfit?.name || 'Outfit'} preview ${i + 1}`} style={{ width: '100%', height: '160px', borderRadius: '10px', objectFit: 'contain' }} />
             </div>
           ))}
@@ -477,134 +489,5 @@ const StatsSection = ({ userId }) => {
     </div>
   );
 };
-
-function normalizeStatsResponse(data) {
-  const v = (obj, key) => {
-    if (!obj) return null;
-    const target = key.toLowerCase();
-    const actualKey = Object.keys(obj).find((k) => k.toLowerCase() === target);
-    return actualKey ? obj[actualKey] : null;
-  };
-
-  const monthlyActivity = Object.entries(v(data, 'monthlyActivity') || {})
-    .map(([month, stat]) => ({
-      month,
-      total: v(stat, 'totalWears') ?? 0,
-      unique: v(stat, 'uniqueItemsWorn') ?? 0
-    }))
-    .sort((a, b) => parseMonthLabel(a.month) - parseMonthLabel(b.month));
-
-  const seasonalDist = Object.entries(v(data, 'seasonalDistribution') || {})
-    .map(([season, stat]) => ({
-      season,
-      total: v(stat, 'totalWears') ?? 0,
-      unique: v(stat, 'uniqueItemsWorn') ?? 0
-    }))
-    .sort((a, b) => getSeasonRank(a.season) - getSeasonRank(b.season));
-
-  return {
-    window: {
-      label: v(v(data, 'window'), 'label') || 'all time',
-      startDateUtc: v(v(data, 'window'), 'startDateUtc'),
-      endDateUtc: v(v(data, 'window'), 'endDateUtc')
-    },
-    totalWearSessions: v(data, 'totalWearSessions') ?? 0,
-    totalWearEvents: v(data, 'totalWearEvents') ?? 0,
-    totalDistinctWornItems: v(data, 'totalDistinctWornItems') ?? 0,
-    activeDays: v(data, 'activeDays') ?? 0,
-    topWornItems: (v(data, 'topWornItems') || []).map((i) => ({
-      id: v(i, 'id'), name: v(i, 'name'), imageUrl: v(i, 'imageUrl'), count: v(i, 'count') ?? 0
-    })),
-    unwornRecently: (v(data, 'unwornRecently') || []).map((i) => ({
-      id: v(i, 'id'), name: v(i, 'name'), imageUrl: v(i, 'imageUrl'), days: v(i, 'daysSinceLastWear') ?? 0
-    })),
-    wornColors: (v(data, 'wornColors') || []).map((c) => ({
-      color: v(c, 'color'), pct: v(c, 'percentage') ?? 0
-    })),
-    styleDist: v(data, 'styleDistribution') || {},
-    styleByDay: v(data, 'styleByDay') || {},
-    monthlyActivity,
-    seasonalDist,
-    topOutfits: (v(data, 'topOutfits') || []).map((o) => ({
-      id: v(o, 'id'),
-      name: v(o, 'name'),
-      count: v(o, 'count') ?? 0,
-      images: (v(o, 'itemImages') || []).filter(Boolean)
-    })),
-    utilizationRate: v(data, 'wardrobeUtilizationRate') ?? 0,
-    diversityInsight: v(data, 'diversityInsight') || '',
-    colorInsight: v(data, 'colorInsight') || '',
-    wearHistory: (v(data, 'wearHistory') || []).map((d) => ({
-      date: v(d, 'date'),
-      outfits: (v(d, 'outfits') || []).map((s) => ({
-        outfitId: v(s, 'outfitId'),
-        outfitName: v(s, 'outfitName'),
-        exactTime: v(s, 'exactTime'),
-        itemImages: (v(s, 'itemImages') || []).filter(Boolean)
-      }))
-    })),
-    streak: {
-      currentStreakDays: v(v(data, 'streak'), 'currentStreakDays') ?? 0,
-      longestStreakDays: v(v(data, 'streak'), 'longestStreakDays') ?? 0,
-      latestWearDateUtc: v(v(data, 'streak'), 'latestWearDateUtc')
-    },
-    outfitSourceSplit: {
-      totalSessions: v(v(data, 'outfitSourceSplit'), 'totalSessions') ?? 0,
-      aiGeneratedSessions: v(v(data, 'outfitSourceSplit'), 'aiGeneratedSessions') ?? 0,
-      customSessions: v(v(data, 'outfitSourceSplit'), 'customSessions') ?? 0,
-      aiGeneratedPercentage: v(v(data, 'outfitSourceSplit'), 'aiGeneratedPercentage') ?? 0,
-      customPercentage: v(v(data, 'outfitSourceSplit'), 'customPercentage') ?? 0
-    },
-    categoryUtilization: (v(data, 'categoryUtilization') || []).map((item) => ({
-      category: v(item, 'category'),
-      totalItems: v(item, 'totalItems') ?? 0,
-      wornItems: v(item, 'wornItems') ?? 0,
-      wearCount: v(item, 'wearCount') ?? 0,
-      utilizationRate: v(item, 'utilizationRate') ?? 0
-    }))
-  };
-}
-
-function parseMonthLabel(value) {
-  if (!value) return 0;
-  const parsed = new Date(`01 ${value}`);
-  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
-}
-
-function getSeasonRank(value) {
-  if (!value) return Number.MAX_SAFE_INTEGER;
-  const index = SEASON_ORDER.indexOf(String(value).toLowerCase());
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
-}
-
-function getCssColor(c) {
-  const map = {
-    'navy blue': '#000080',
-    'sky blue': '#87CEEB',
-    maroon: '#800000',
-    mustard: '#FFDB58',
-    burgundy: '#800020',
-    'olive green': '#556B2F',
-    'off-white': '#FAF9F6',
-    cream: '#FFFDD0',
-    charcoal: '#36454F',
-    grey: '#808080'
-  };
-  return map[c?.toLowerCase()] || c || '#999';
-}
-
-function formatDate(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString();
-}
-
-function formatTime(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 export default StatsSection;

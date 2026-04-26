@@ -47,9 +47,11 @@ builder.Services.AddScoped<IUserRepository, WardrobeManager.Infrastructure.Repos
 builder.Services.AddScoped<IClothingRepository, WardrobeManager.Infrastructure.Repositories.ClothingRepository>();
 builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Repositories.OutfitRepository>();
 builder.Services.AddScoped<IWearEventRepository, WardrobeManager.Infrastructure.Repositories.WearEventRepository>();
+builder.Services.AddScoped<IPlannerEventRepository, WardrobeManager.Infrastructure.Repositories.PlannerEventRepository>();
 
 // Register Domain/Application Services
 builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();
+builder.Services.AddScoped<IEventOutfitPlanningService, WardrobeManager.Application.PlannedOutfits.EventOutfitPlanningService>();
 builder.Services.AddScoped<IWeatherService, WardrobeManager.Infrastructure.ExternalServices.WeatherService>();
 
 // Register extern

@@ -13,7 +13,7 @@ public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidat
 
         var outfits = await outfitRepository.GetByUserIdAsync(request.UserId, ct);
 
-        return outfits.Select(o => new OutfitDto(
+        return outfits.Where(o => !o.IsEventExclusive).Select(o => new OutfitDto(
             o.Id,
             o.Name,
             o.IsAiGenerated,
