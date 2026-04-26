@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WardrobeManager.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9124b2b89fff836185f6698557371b894e84c3d0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+be8c233815040c991a430c12f42dd3bac8fe61ac")]
 [assembly: System.Reflection.AssemblyProductAttribute("WardrobeManager.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WardrobeManager.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

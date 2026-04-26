@@ -77,12 +77,8 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
             if (outfitResult != null)
             {
                 // Load full clothing items from database
-                var items = new List<ClothingItem>();
-                foreach (var si in outfitResult.SelectedItems)
-                {
-                    var item = await _clothingRepository.GetByIdAsync(si.Id, ct);
-                    if (item != null) items.Add(item);
-                }
+                var itemIds = outfitResult.SelectedItems.Select(si => si.Id).ToList();
+                var items = await _clothingRepository.GetByIdsAsync(itemIds, ct);
 
                 // Save outfit
                 var outfit = new Outfit

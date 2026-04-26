@@ -23,8 +23,7 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
 
     public async Task DeleteAsync(ClothingItem item, CancellationToken ct = default)
     {
-        context.ClothingItems.Remove(item);
-        await context.SaveChangesAsync(ct);
+        await context.ClothingItems.Where(i => i.Id == item.Id).ExecuteDeleteAsync(ct);
     }
 
     public async Task<ClothingItem?> GetByIdAsync(Guid id, CancellationToken ct = default)
@@ -33,6 +32,13 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
             .Include(i => i.Outfits)
             .Include(i => i.WearEvents)
             .FirstOrDefaultAsync(i => i.Id == id, ct);
+    }
+
+    public async Task<List<ClothingItem>> GetByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        return await context.ClothingItems
+            .Where(i => ids.Contains(i.Id))
+            .ToListAsync(ct);
     }
 
     public async Task<List<ClothingItem>> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
@@ -55,25 +61,25 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
             query = query.Where(i => i.Type == type.Value);
         }
 
-        var projection = query.Select(i => new 
+        // Order directly by distance to ensure HNSW index usage
+        var results = await query
+            .OrderBy(i => EF.Property<Pgvector.Vector>(i, "Embedding").CosineDistance(pgVector))
+            .Take(limit)
+            .Select(i => new 
             { 
                 Item = i, 
-                // Convertim property-ul float[] la Vector pentru a putea folosi CosineDistance
                 Distance = EF.Property<Pgvector.Vector>(i, "Embedding").CosineDistance(pgVector)
-            });
+            })
+            .ToListAsync(ct);
+
+        var finalResults = results.Select(x => (x.Item, Similarity: 1 - x.Distance));
 
         if (threshold.HasValue)
         {
-            // similarity = 1 - distance
-            projection = projection.Where(x => (1 - x.Distance) >= threshold.Value);
+            finalResults = finalResults.Where(x => x.Similarity >= threshold.Value);
         }
 
-        var results = await projection
-            .OrderBy(x => x.Distance)
-            .Take(limit)
-            .ToListAsync(ct);
-
-        return results.Select(x => (x.Item, 1 - x.Distance)).ToList();
+        return finalResults.ToList();
     }
 
     public IQueryable<ClothingItem> Query()
