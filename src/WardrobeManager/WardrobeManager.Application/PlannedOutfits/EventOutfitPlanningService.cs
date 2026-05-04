@@ -5,8 +5,30 @@ namespace WardrobeManager.Application.PlannedOutfits;
 
 public class EventOutfitPlanningService(IClothingRepository clothingRepository) : IEventOutfitPlanningService
 {
-    public (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather)
+    public (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather, string? existingMoment = null, List<string>? preferredStyles = null)
     {
+        // If the user already provided a moment (e.g. they typed "Dinner", "Gym", "Flight"),
+        // try to infer the style directly from that moment string.
+        if (!string.IsNullOrWhiteSpace(existingMoment))
+        {
+            var momentLower = existingMoment.ToLowerInvariant();
+            
+            var inferredStyle = eventType switch
+            {
+                _ when momentLower.Contains("gym") || momentLower.Contains("workout") || momentLower.Contains("run") || momentLower.Contains("sport") => "Sports",
+                _ when momentLower.Contains("flight") || momentLower.Contains("travel") || momentLower.Contains("airport") || momentLower.Contains("lounging") => "Travel",
+                _ when momentLower.Contains("dinner") || momentLower.Contains("party") || momentLower.Contains("club") || momentLower.Contains("evening") || momentLower.Contains("night") => "Party",
+                _ when momentLower.Contains("wedding") || momentLower.Contains("ceremony") || momentLower.Contains("gala") => "Formal",
+                _ when momentLower.Contains("meeting") || momentLower.Contains("office") || momentLower.Contains("work") || momentLower.Contains("business") => "Business",
+                _ when momentLower.Contains("date") || momentLower.Contains("romantic") => "Date",
+                _ when momentLower.Contains("brunch") || momentLower.Contains("lunch") || momentLower.Contains("city") || momentLower.Contains("walk") => "Smart Casual",
+                _ => GetDefaultStyleForEvent(eventType, weather, preferredStyles)
+            };
+
+            return (inferredStyle, existingMoment);
+        }
+
+        // If no existing moment, fallback to auto-generation rules
         if (dayIndex == 0)
         {
             return eventType switch
@@ -22,16 +44,27 @@ public class EventOutfitPlanningService(IClothingRepository clothingRepository) 
             };
         }
 
-        var style = eventType switch
+        var style = GetDefaultStyleForEvent(eventType, weather, preferredStyles);
+        return (style, DetermineMoment(weather));
+    }
+
+    private static string GetDefaultStyleForEvent(string eventType, WeatherData? weather, List<string>? preferredStyles)
+    {
+        // If the user explicitly provided a Vibe/Preferred Styles for this trip, respect the first one available
+        if (preferredStyles != null && preferredStyles.Count > 0)
+        {
+            return preferredStyles.First(); // Prioritize user's vibe
+        }
+
+        return eventType switch
         {
             "Wedding" => "Formal",
             "Party" => "Party",
             "Date" => "Date",
             "Meeting" => "Business",
+            "Business Trip" => "Business",
             _ => weather?.SeasonSuggestion ?? "Casual"
         };
-
-        return (style, DetermineMoment(weather));
     }
 
     public async Task<ClothingItem?> SelectStartItemAsync(

@@ -4,7 +4,7 @@ namespace WardrobeManager.Application.Abstractions;
 
 public interface IEventOutfitPlanningService
 {
-    (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather);
+    (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather, string? existingMoment = null, List<string>? preferredStyles = null);
     Task<ClothingItem?> SelectStartItemAsync(
         Guid userId,
         string style,

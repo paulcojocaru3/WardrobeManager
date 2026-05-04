@@ -5,7 +5,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
-public record CreatePlannerEventCommand(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate) : IRequest<Guid>;
+public record CreatePlannerEventCommand(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string> PreferredStyles) : IRequest<Guid>;
 
 public class CreatePlannerEventCommandValidator : AbstractValidator<CreatePlannerEventCommand>
 {
@@ -57,7 +57,8 @@ public class CreatePlannerEventCommandHandler : IRequestHandler<CreatePlannerEve
             Location = request.Location,
             StartDate = request.StartDate.Date,
             EndDate = request.EndDate.Date,
-            Status = "Active" // Set default status to Active
+            Status = "Active", // Set default status to Active
+            PreferredStyles = request.PreferredStyles ?? new List<string>()
         };
 
         await _plannerEventRepository.AddAsync(plannerEvent, cancellationToken);

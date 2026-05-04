@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Button from './Button';
 import Modal from './Modal';
-import { outfitsApi } from '../services/wardrobeApi';
 import { CLOTHING_TYPES } from '../constants/wardrobe';
 import './OutfitEditingModal.css';
 
@@ -19,9 +18,10 @@ const OutfitEditingModal = ({
   clothes,
   outfits,
   currentOutfit,
-  currentItinerary,
   dayInfo,
   loading,
+  mode = 'edit', // 'edit' or 'plan'
+  initialMoment = '',
 }) => {
   // Tab state: 'select' or 'edit'
   const [tab, setTab] = useState('select');
@@ -32,6 +32,12 @@ const OutfitEditingModal = ({
   // Edited items when in 'edit' tab
   const [editedItemIds, setEditedItemIds] = useState(currentOutfit?.items?.map(i => i.id) || []);
 
+  // Track which clothing items to show (filtered by clothing type for better UX)
+  const [clothingTypeFilter, setClothingTypeFilter] = useState(0);
+
+  // Moment state for planning
+  const [moment, setMoment] = useState(initialMoment);
+
   // Update state when modal opens or currentOutfit changes
   React.useEffect(() => {
     if (isOpen) {
@@ -39,11 +45,9 @@ const OutfitEditingModal = ({
       setEditedItemIds(currentOutfit?.items?.map(i => i.id) || []);
       setTab('select');
       setClothingTypeFilter(0);
+      setMoment(initialMoment);
     }
-  }, [isOpen, currentOutfit]);
-
-  // Track which clothing items to show (filtered by clothing type for better UX)
-  const [clothingTypeFilter, setClothingTypeFilter] = useState(0);
+  }, [isOpen, currentOutfit, initialMoment]);
 
   // Filter clothes based on selected type
   const filteredClothes = useMemo(() => {
@@ -79,22 +83,25 @@ const OutfitEditingModal = ({
       onSave({
         outfitId: selectedOutfitId,
         itemIds: null, // Use outfit as-is
+        moment: mode === 'plan' ? moment : undefined,
       });
     } else {
       // Save with edited items
       onSave({
         outfitId: null,
         itemIds: editedItemIds,
+        moment: mode === 'plan' ? moment : undefined,
       });
     }
-  }, [tab, selectedOutfitId, editedItemIds, onSave]);
+  }, [tab, selectedOutfitId, editedItemIds, moment, mode, onSave]);
 
   const handleReset = useCallback(() => {
     setTab('select');
     setSelectedOutfitId(currentOutfit?.id || null);
     setEditedItemIds(currentOutfit?.items?.map(i => i.id) || []);
     setClothingTypeFilter(null);
-  }, [currentOutfit]);
+    setMoment(initialMoment);
+  }, [currentOutfit, initialMoment]);
 
   if (!isOpen) return null;
 
@@ -230,18 +237,33 @@ const OutfitEditingModal = ({
           )}
         </div>
 
+        {/* Moment Input for Planning */}
+        {mode === 'plan' && (
+          <div style={{ padding: '15px 20px', borderTop: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>MOMENT (e.g. Morning, Dinner, Flight)</span>
+            <input 
+              type="text" 
+              className="name-input" 
+              value={moment} 
+              onChange={e => setMoment(e.target.value)}
+              placeholder="Enter moment..."
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="modal-actions">
           <button
             className="gen-btn"
             onClick={handleSave}
-            disabled={loading || (tab === 'select' ? !selectedOutfitId : editedItemIds.length === 0)}
+            disabled={loading || (tab === 'select' ? !selectedOutfitId : editedItemIds.length === 0) || (mode === 'plan' && !moment.trim())}
             style={{
-              opacity: loading || (tab === 'select' ? !selectedOutfitId : editedItemIds.length === 0) ? 0.5 : 1,
+              opacity: loading || (tab === 'select' ? !selectedOutfitId : editedItemIds.length === 0) || (mode === 'plan' && !moment.trim()) ? 0.5 : 1,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'SAVING...' : 'SAVE OUTFIT'}
+            {loading ? 'SAVING...' : (mode === 'plan' ? 'PLAN OUTFIT' : 'SAVE OUTFIT')}
           </button>
           <button
             className="close-link"

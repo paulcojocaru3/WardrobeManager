@@ -6,6 +6,20 @@ export const SEASONS = ['Summer', 'Fall', 'Winter', 'Spring'];
 
 export const USAGES = ['Casual', 'Ethnic', 'Formal', 'Party', 'Smart Casual', 'Sports', 'Travel'];
 
+export const EVENT_MOMENTS = [
+  'Morning', 
+  'Day / City Walk', 
+  'Afternoon', 
+  'Evening', 
+  'Dinner', 
+  'Party / Night', 
+  'Flight / Travel', 
+  'Gym / Workout', 
+  'Business / Meeting', 
+  'Date / Romantic', 
+  'Ceremony / Wedding'
+];
+
 export const COLORS = [
   'black', 'white', 'off-white', 'cream', 'beige', 'ivory', 'silver', 'grey', 'charcoal', 'dark grey',
   'navy blue', 'royal blue', 'sky blue', 'baby blue', 'azure', 'teal', 'turquoise', 'cyan',

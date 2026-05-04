@@ -32,14 +32,30 @@ public class PlannerEventsController : ControllerBase
         return Ok(result);
     }
 
-    public record CreatePlannerEventRequest(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate);
+    public record CreatePlannerEventRequest(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string>? PreferredStyles = null);
 
     [HttpPost]
     public async Task<ActionResult<Guid>> CreatePlannerEvent([FromBody] CreatePlannerEventRequest request)
     {
-        var command = new CreatePlannerEventCommand(request.UserId, request.Name, request.Type, request.Location, request.StartDate, request.EndDate);
+        var command = new CreatePlannerEventCommand(request.UserId, request.Name, request.Type, request.Location, request.StartDate, request.EndDate, request.PreferredStyles ?? new List<string>());
         var result = await _mediator.Send(command);
         return Ok(result);
+    }
+
+    public record UpdatePlannerEventRequest(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string>? PreferredStyles = null);
+
+    [HttpPut("{plannerEventId}")]
+    public async Task<IActionResult> UpdatePlannerEvent(Guid plannerEventId, [FromBody] UpdatePlannerEventRequest request)
+    {
+        var command = new UpdatePlannerEventCommand(request.UserId, plannerEventId, request.Name, request.Type, request.Location, request.StartDate, request.EndDate, request.PreferredStyles ?? new List<string>());
+        var result = await _mediator.Send(command);
+
+        if (!result)
+        {
+            return NotFound();
+        }
+
+        return NoContent();
     }
 
     [HttpDelete("{userId}/{plannerEventId}")]

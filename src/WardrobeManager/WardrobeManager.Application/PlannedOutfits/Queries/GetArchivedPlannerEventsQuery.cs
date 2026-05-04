@@ -55,6 +55,7 @@ public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedP
             EndDate = p.EndDate,
             Status = p.Status,
             ArchivedAt = p.ArchivedAt,
+            PreferredStyles = p.PreferredStyles ?? new List<string>(),
             Itineraries = p.Itineraries.Select(i => new EventItineraryDto
             {
                 Id = i.Id,
