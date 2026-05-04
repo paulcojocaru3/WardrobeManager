@@ -12,6 +12,7 @@ public class PlannerEvent
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string Status { get; set; } = "Active"; // "Active" or "Archived"
     public DateTime? ArchivedAt { get; set; }
+    public List<string> PreferredStyles { get; set; } = new();
 
     // Navigation properties
     public User? User { get; set; }

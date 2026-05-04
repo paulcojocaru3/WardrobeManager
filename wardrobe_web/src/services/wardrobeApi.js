@@ -34,6 +34,7 @@ export const plannerEventsApi = {
   getByUser: (userId) => apiClient.get(`/planner-events/${userId}`),
   getArchivedByUser: (userId) => apiClient.get(`/planner-events/${userId}/archived`),
   create: (payload) => apiClient.post('/planner-events', payload),
+  update: (plannerEventId, payload) => apiClient.put(`/planner-events/${plannerEventId}`, payload),
   remove: (userId, plannerEventId) => apiClient.delete(`/planner-events/${userId}/${plannerEventId}`),
   archiveEvent: (eventId) => apiClient.post(`/planner-events/${eventId}/archive`, {}),
   addItinerary: (plannerEventId, payload) => apiClient.post(`/planner-events/${plannerEventId}/itineraries`, payload),

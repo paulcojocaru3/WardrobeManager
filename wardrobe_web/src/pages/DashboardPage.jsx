@@ -1,23 +1,72 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
+import PackSmartModal from '../components/modals/PackSmartModal';
+import CreateEventModal from '../components/modals/CreateEventModal';
+import EditEventModal from '../components/modals/EditEventModal';
+import CustomOutfitModal from '../components/modals/CustomOutfitModal';
+import PlanOutfitModal from '../components/modals/PlanOutfitModal';
+import EditItineraryModal from '../components/modals/EditItineraryModal';
+import DayPreviewModal from '../components/modals/DayPreviewModal';
+import GeneratingModal from '../components/modals/GeneratingModal';
+import UploadModal from '../components/modals/UploadModal';
+import EditOutfitModal from '../components/modals/EditOutfitModal';
+import ItemInspectModal from '../components/modals/ItemInspectModal';
+import StyleSelectionModal from '../components/modals/StyleSelectionModal';
+import AiSuggestionModal from '../components/modals/AiSuggestionModal';
+import ValidationModal from '../components/modals/ValidationModal';
+import CitySelectionModal from '../components/modals/CitySelectionModal';
 import OutfitEditingModal from '../components/OutfitEditingModal';
 import StatsSection from '../components/StatsSection';
 import WeatherBar from '../components/WeatherBar';
 import { clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
-import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES } from '../constants/wardrobe';
+import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
 import { getErrorMessage } from '../utils/errors';
 import { toCsv, toStringArray, toTypeIndex } from '../utils/wardrobeTransforms';
 import { useTheme } from '../contexts/ThemeContext';
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const toDayStart = (value) => {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const toDayEnd = (value) => {
+  const date = new Date(value);
+  date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const toDayKey = (value) => {
+  const date = toDayStart(value);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
+const findItineraryForDate = (event, targetDate) => {
+  const targetKey = toDayKey(targetDate);
+  return event?.itineraries?.find((itinerary) => toDayKey(itinerary.date) === targetKey) || null;
+};
+
+const getDayOffset = (eventStartDate, targetDate) => {
+  const start = toDayStart(eventStartDate).getTime();
+  const target = toDayStart(targetDate).getTime();
+  return Math.max(0, Math.round((target - start) / DAY_IN_MS));
+};
+
 const DashboardPage = ({ user, onLogout }) => {
   const { isDarkMode, toggleTheme } = useTheme();
+  const [genericForecast, setGenericForecast] = useState([]);
   const [clothes, setClothes] = useState([]);
   const [outfits, setOutfits] = useState([]);
   const [plannerEvents, setPlannerEvents] = useState([]);
   const [usageRate, setUsageRate] = useState(0);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('dashboard');
+  const [previewDay, setPreviewDay] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [editItemMode, setEditItemMode] = useState(false);
   const [editItemData, setEditItemData] = useState(null);
@@ -36,6 +85,21 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const [planModal, setPlanModal] = useState(false);
   const [planData, setPlanData] = useState({ outfitId: null, plannerEventId: '', selectedDayIndex: null, moment: '' });
+
+  const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting...');
+  const [cityModal, setCityModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [weatherInfo, setWeatherInfo] = useState(null);
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [styleSelectionModal, setStyleSelectionModal] = useState(false);
+  const [generationContext, setGenerationContext] = useState(null);
+
+  const [packSmartModal, setPackSmartModal] = useState(false);
+  const [packSmartData, setPackSmartData] = useState(null);
+  const [packedItems, setPackedItems] = useState([]);
+
+  // Event weather forecasts
+  const [eventForecasts, setEventForecasts] = useState({});
 
   // Helper to get days for an event
   const getEventDays = useCallback((event) => {
@@ -59,24 +123,91 @@ const DashboardPage = ({ user, onLogout }) => {
   }, [planData.plannerEventId, plannerEvents, getEventDays]);
 
   const todaysEvents = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    return plannerEvents.filter(event => {
-      const start = new Date(event.startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(event.endDate);
-      end.setHours(23, 59, 59, 999);
-      return today >= start && today <= end;
-    }).map(event => {
-      const itinerary = event.itineraries?.find(it => {
-        const itDate = new Date(it.date);
-        itDate.setHours(0, 0, 0, 0);
-        return itDate.getTime() === today.getTime();
-      });
-      return { ...event, todayItinerary: itinerary };
-    });
+    const today = toDayStart(new Date());
+
+    return plannerEvents
+      .filter((event) => today >= toDayStart(event.startDate) && today <= toDayEnd(event.endDate))
+      .map((event) => ({
+        ...event,
+        todayItinerary: findItineraryForDate(event, today)
+      }));
   }, [plannerEvents]);
+
+  const todaysEventSummary = useMemo(() => {
+    const plannedCount = todaysEvents.filter((event) => event.todayItinerary?.outfitId || event.todayItinerary?.outfit).length;
+    const totalEvents = todaysEvents.length;
+
+    return {
+      totalEvents,
+      plannedCount,
+      missingCount: Math.max(totalEvents - plannedCount, 0)
+    };
+  }, [todaysEvents]);
+
+  const upcomingWeekDays = useMemo(() => {
+    const today = toDayStart(new Date());
+
+    return Array.from({ length: 7 }, (_, index) => {
+      const currentDate = new Date(today);
+      currentDate.setDate(today.getDate() + index);
+
+      const mappedEvents = plannerEvents
+        .filter((event) => currentDate >= toDayStart(event.startDate) && currentDate <= toDayEnd(event.endDate))
+        .map((event) => {
+          const itinerary = findItineraryForDate(event, currentDate);
+          return { event, itinerary };
+        });
+
+      const totalEvents = mappedEvents.length;
+      const plannedCount = mappedEvents.filter((entry) => entry.itinerary?.outfitId || entry.itinerary?.outfit).length;
+      const primaryEntry = mappedEvents.find((entry) => !(entry.itinerary?.outfitId || entry.itinerary?.outfit)) || mappedEvents[0] || null;
+      const primaryEvent = primaryEntry?.event || null;
+      const primaryItinerary = primaryEntry?.itinerary || null;
+
+      const forecastCandidates = primaryEvent ? eventForecasts[primaryEvent.id] || [] : [];
+      let matchedForecast = forecastCandidates.find((forecast) => toDayKey(forecast.date) === toDayKey(currentDate));
+      
+      // If we don't have an event forecast for this day, try using the generic city forecast (up to 5 days)
+      if (!matchedForecast && genericForecast && genericForecast.length > 0) {
+        matchedForecast = genericForecast.find((forecast) => toDayKey(forecast.date) === toDayKey(currentDate));
+      }
+
+      const fallbackForecast = index === 0 && weatherInfo
+        ? { temperature: weatherInfo.temperature, condition: weatherInfo.condition }
+        : null;
+
+      const status = totalEvents === 0
+        ? 'free'
+        : plannedCount === totalEvents
+          ? 'planned'
+          : 'needs-plan';
+
+      return {
+        dayKey: toDayKey(currentDate),
+        date: currentDate,
+        isToday: index === 0,
+        weekdayLabel: currentDate.toLocaleDateString(undefined, { weekday: 'short' }),
+        dayLabel: currentDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        totalEvents,
+        plannedCount,
+        status,
+        primaryEvent,
+        primaryItinerary,
+        allEvents: mappedEvents,
+        weather: matchedForecast || fallbackForecast
+      };
+    });
+  }, [plannerEvents, eventForecasts, weatherInfo, genericForecast]);
+
+  const weekDaysWithEvents = useMemo(
+    () => upcomingWeekDays.filter((day) => day.totalEvents > 0),
+    [upcomingWeekDays]
+  );
+
+  const weekReadyDays = useMemo(
+    () => weekDaysWithEvents.filter((day) => day.status === 'planned').length,
+    [weekDaysWithEvents]
+  );
 
   const [editItineraryModal, setEditItineraryModal] = useState(false);
 const [editItineraryData, setEditItineraryData] = useState({
@@ -88,7 +219,9 @@ const [editItineraryData, setEditItineraryData] = useState({
   });
 
   const [createEventModal, setCreateEventModal] = useState(false);
-  const [createEventData, setCreateEventData] = useState({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '' });
+  const [createEventData, setCreateEventData] = useState({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
+  const [editEventModal, setEditEventModal] = useState(false);
+  const [editEventData, setEditEventData] = useState({ id: '', name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
   const [eventLocationSearch, setEventLocationSearch] = useState('');
   const [eventLocationSuggestions, setEventLocationSuggestions] = useState([]);
 
@@ -102,17 +235,6 @@ const [editItineraryData, setEditItineraryData] = useState({
   const [customOutfitModal, setCustomOutfitModal] = useState(false);
   const [customOutfitData, setCustomOutfitData] = useState({ name: '', itemIds: [] });
   const [customOutfitTab, setCustomOutfitTab] = useState(0); 
-
-const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting...');
-  const [cityModal, setCityModal] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [weatherInfo, setWeatherInfo] = useState(null);
-  const [citySuggestions, setCitySuggestions] = useState([]);
-  const [styleSelectionModal, setStyleSelectionModal] = useState(false);
-  const [generationContext, setGenerationContext] = useState(null); 
-
-  // Event weather forecasts
-  const [eventForecasts, setEventForecasts] = useState({});
 
   // Event creation wizard state
   const [wizardStep, setWizardStep] = useState(0);
@@ -134,6 +256,7 @@ const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting.
     date: null,
     moment: null,
     dayIndex: null,
+    mode: 'edit',
   });
 
   // Planner derived selectors
@@ -207,6 +330,53 @@ const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting.
     [clothes]
   );
 
+  const firstName = useMemo(() => userDisplayName.split(/\s+/).filter(Boolean)[0] || 'there', [userDisplayName]);
+
+  const greetingLabel = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'good morning';
+    if (hour < 18) return 'good afternoon';
+    return 'good evening';
+  }, []);
+
+  const todaysReadinessPercent = useMemo(() => {
+    if (todaysEventSummary.totalEvents === 0) return 100;
+    return Math.round((todaysEventSummary.plannedCount / todaysEventSummary.totalEvents) * 100);
+  }, [todaysEventSummary]);
+
+  const quickActions = useMemo(() => ([
+    {
+      id: 'add-item',
+      label: 'Add item',
+      hint: 'Upload and classify a new piece',
+      disabled: false
+    },
+    {
+      id: 'create-outfit',
+      label: 'Create outfit',
+      hint: 'Build a custom look manually',
+      disabled: clothes.length === 0
+    },
+    {
+      id: 'plan-today',
+      label: 'Plan today',
+      hint: 'Assign outfits for current events',
+      disabled: todaysEventSummary.totalEvents === 0
+    },
+    {
+      id: 'generate-today',
+      label: 'Generate AI look',
+      hint: 'Auto-generate with weather context',
+      disabled: loading || clothes.length === 0
+    },
+    {
+      id: 'open-planner',
+      label: 'Open planner',
+      hint: 'Manage day-by-day event timelines',
+      disabled: false
+    }
+  ]), [clothes.length, loading, todaysEventSummary.totalEvents]);
+
   useEffect(() => {
     const detectLocation = async () => {
       const savedCity = localStorage.getItem('userCity');
@@ -245,12 +415,18 @@ const [city, setCity] = useState(localStorage.getItem('userCity') || 'Detecting.
     localStorage.setItem('userCity', newCity);
   }, []);
 
-const fetchWeather = useCallback(async () => {
+  const fetchWeather = useCallback(async () => {
     if (city === 'Detecting...') return;
 
     try {
       const res = await outfitsApi.getWeather(city);
       setWeatherInfo(res.data);
+      
+      // Also fetch generic 5-day forecast for the city so we can display it on the upcoming 7 days timeline
+      const forecastRes = await outfitsApi.getForecast(city, 5, new Date());
+      if (forecastRes.data?.forecasts) {
+        setGenericForecast(forecastRes.data.forecasts);
+      }
     } catch (e) {
       console.error('Weather error:', e);
     }
@@ -691,15 +867,45 @@ return () => clearTimeout(timeoutId);
         endDate: new Date(createEventData.endDate).toISOString()
       });
       
-      // Reset wizard state
-      setWizardStep(0);
-      setWizardPreview(null);
-      setCreateEventModal(false);
-      setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '' });
+              // Reset wizard state
+              setWizardStep(0);
+              setWizardPreview(null);
+              setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
       fetchPlannerEvents();
     } catch (err) {
       handleApiAlert(err, 'Create event failed');
-      console.error('Create event error:', err);
+    }
+    finally { setLoading(false); }
+  };
+
+  const onUpdatePlannerEvent = async () => {
+    if (!editEventData.name || !editEventData.location || !editEventData.startDate || !editEventData.endDate) {
+      alert("Please fill all fields.");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await plannerEventsApi.update(editEventData.id, {
+        userId,
+        ...editEventData,
+        startDate: new Date(editEventData.startDate).toISOString(),
+        endDate: new Date(editEventData.endDate).toISOString()
+      });
+      
+      setEditEventModal(false);
+      fetchPlannerEvents();
+      
+      // Update selected event if it's the one being edited
+      if (selectedPlannerEvent && selectedPlannerEvent.id === editEventData.id) {
+        const res = await plannerEventsApi.getByUser(userId);
+        const updatedEvent = res.data?.find(e => e.id === editEventData.id);
+        if (updatedEvent) {
+          setSelectedPlannerEvent(updatedEvent);
+        }
+      }
+    } catch (err) {
+      handleApiAlert(err, 'Update event failed');
     }
     finally { setLoading(false); }
   };
@@ -832,34 +1038,27 @@ const onDeleteItinerary = async (plannerEventId, itineraryId) => {
     }
   };
 
-const openOutfitEditingModal = (plannerEventId, itinerary, dayInfo, dayIndex) => {
+const openOutfitEditingModal = (plannerEventId, itinerary, dayInfo, dayIndex, mode = 'edit') => {
     setOutfitEditingData({
       plannerEventId,
-      itineraryId: itinerary.id,
-      outfitId: itinerary.outfitId,
-      date: itinerary.date,
-      moment: itinerary.moment,
+      itineraryId: itinerary?.id || null,
+      outfitId: itinerary?.outfitId || null,
+      date: itinerary?.date || dayInfo?.date?.toISOString() || null,
+      moment: itinerary?.moment || '',
       dayIndex,
+      mode,
     });
     setOutfitEditingModal(true);
   };
 
 const onSaveOutfitEdit = async (saveData) => {
-    const { outfitId, itemIds } = saveData;
+    const { outfitId, itemIds, moment } = saveData;
     setLoading(true);
     try {
-      // If selecting existing outfit
-      if (outfitId && !itemIds) {
-        await plannerEventsApi.updateItinerary(outfitEditingData.plannerEventId, outfitEditingData.itineraryId, {
-          userId,
-          outfitId,
-          date: outfitEditingData.date,
-          moment: outfitEditingData.moment
-        });
-      } 
-      // If editing items
-      else if (itemIds && itemIds.length > 0) {
-        // Create a custom outfit with the selected items
+      let finalOutfitId = outfitId;
+
+      // If editing items, create a custom outfit first
+      if (itemIds && itemIds.length > 0) {
         const customOutfitRes = await outfitsApi.create({
           userId,
           name: `Custom - ${new Date(outfitEditingData.date).toLocaleDateString()}`,
@@ -867,13 +1066,24 @@ const onSaveOutfitEdit = async (saveData) => {
           isAiGenerated: false,
           isEventExclusive: true
         });
-        
-        // Update itinerary with new custom outfit
+        finalOutfitId = customOutfitRes.data;
+      }
+
+      if (outfitEditingData.mode === 'plan') {
+        // Add new itinerary
+        await plannerEventsApi.addItinerary(outfitEditingData.plannerEventId, {
+          userId,
+          outfitId: finalOutfitId,
+          date: outfitEditingData.date,
+          moment: moment || outfitEditingData.moment
+        });
+      } else {
+        // Update existing itinerary
         await plannerEventsApi.updateItinerary(outfitEditingData.plannerEventId, outfitEditingData.itineraryId, {
           userId,
-          outfitId: customOutfitRes.data,
+          outfitId: finalOutfitId,
           date: outfitEditingData.date,
-          moment: outfitEditingData.moment
+          moment: moment || outfitEditingData.moment
         });
       }
 
@@ -970,6 +1180,68 @@ const onUpdateItinerary = async () => {
     }
   };
 
+  const handlePackSmart = (eventId) => {
+    const event = plannerEvents.find(e => e.id === eventId);
+    if (!event) return;
+
+    const uniqueItemsMap = new Map();
+    let totalOutfitDays = 0;
+    
+    // Group all items used in the event's itineraries
+    event.itineraries?.forEach(itinerary => {
+      if (itinerary.outfit && itinerary.outfit.items) {
+        totalOutfitDays++;
+        itinerary.outfit.items.forEach(item => {
+          if (uniqueItemsMap.has(item.id)) {
+            const data = uniqueItemsMap.get(item.id);
+            data.count++;
+          } else {
+            uniqueItemsMap.set(item.id, { ...item, count: 1 });
+          }
+        });
+      }
+    });
+
+    const groupedByType = {};
+    const items = Array.from(uniqueItemsMap.values());
+    
+    items.forEach(item => {
+      const typeStr = typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type;
+      if (!groupedByType[typeStr]) groupedByType[typeStr] = [];
+      groupedByType[typeStr].push(item);
+    });
+
+    const totalUnique = items.length;
+    
+    // Calculate luggage size
+    let luggageEstimate = "Backpack (Minimalist)";
+    if (totalUnique > 7 && totalUnique <= 15) luggageEstimate = "Carry-on (Standard)";
+    else if (totalUnique > 15) luggageEstimate = "Checked Bag (Heavy)";
+
+    // Analyze inefficiencies
+    const inefficiencies = [];
+    if (totalOutfitDays > 2) {
+      items.forEach(item => {
+        const typeStr = typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type;
+        const typeLower = typeStr.toLowerCase();
+        // If it's a bottom or shoes used only once, that's inefficient
+        if ((typeLower.includes('bottom') || typeLower.includes('shoe') || typeLower.includes('sneaker') || typeLower.includes('boot') || typeLower.includes('pant') || typeLower.includes('jeans')) && item.count === 1) {
+          inefficiencies.push(`You packed ${item.name || 'an item'} (${typeStr}) but only wear it once.`);
+        }
+      });
+    }
+
+    setPackSmartData({
+      event,
+      groupedByType,
+      totalUnique,
+      luggageEstimate,
+      inefficiencies
+    });
+    setPackedItems([]); // reset checklist
+    setPackSmartModal(true);
+  };
+
   const onGenerateEventOutfits = async (plannerEventId) => {
     if (!confirm('This will generate AI outfits for each day of the event. Continue?')) {
       return;
@@ -1004,6 +1276,52 @@ const onUpdateItinerary = async () => {
       setGeneratingProgress(null);
     }
   };
+
+  const openPlannerForDate = useCallback((day) => {
+    if (!day?.primaryEvent) {
+      setView('planner');
+      return;
+    }
+
+    setSelectedPlannerEvent(day.primaryEvent);
+    setPlannerEventTab(day.primaryEvent.status === 'Archived' ? 'archived' : 'active');
+    setSelectedDayIndex(getDayOffset(day.primaryEvent.startDate, day.date));
+    fetchEventForecast(day.primaryEvent);
+    setView('planner');
+  }, [fetchEventForecast]);
+
+  const openPlannerForToday = useCallback(() => {
+    const todayTarget = upcomingWeekDays[0];
+    if (todayTarget?.primaryEvent) {
+      openPlannerForDate(todayTarget);
+      return;
+    }
+
+    setView('planner');
+  }, [openPlannerForDate, upcomingWeekDays]);
+
+  const handleQuickAction = useCallback((action) => {
+    switch (action) {
+      case 'add-item':
+        fileInputRef.current?.click();
+        break;
+      case 'create-outfit':
+        setView('outfits');
+        setCustomOutfitModal(true);
+        break;
+      case 'plan-today':
+        openPlannerForToday();
+        break;
+      case 'generate-today':
+        onGenerate();
+        break;
+      case 'open-planner':
+        setView('planner');
+        break;
+      default:
+        break;
+    }
+  }, [onGenerate, openPlannerForToday]);
 
   return (
     <div className="desktop-wrapper">
@@ -1058,124 +1376,173 @@ const onUpdateItinerary = async () => {
           <h2 className="soft-title">
             {view === 'dashboard' ? 'dashboard' : view === 'clothes' ? 'your wardrobe' : view === 'outfits' ? 'generated outfits' : view === 'planner' ? 'outfit planner' : 'wardrobe insights'}
           </h2>
-          
-          {view === 'dashboard' && (
-            <WeatherBar
-              city={city}
-              weatherInfo={weatherInfo}
-              onOpenCityModal={() => {
-                setSearchTerm('');
-                setCityModal(true);
-              }}
-              onGenerate={() => onGenerate()}
-              disabled={loading || clothes.length === 0}
-            />
-          )}
 
           {view === 'dashboard' ? (
-            <div className="dashboard-layout" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Today's Events Section */}
-              <div className="dashboard-section">
-                <h3 className="section-title" style={{ fontSize: '1rem', marginBottom: '15px', color: 'var(--fg)' }}>Today's Events</h3>
-                {todaysEvents.length === 0 ? (
-                  <div className="empty-state-card" style={{ padding: '20px', textAlign: 'center', background: 'var(--bg-subtle)', borderRadius: '12px', border: '1px dashed var(--border-subtle)' }}>
-                    <p style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', margin: 0 }}>No events planned for today.</p>
-                    <button className="gen-btn" style={{ marginTop: '10px', padding: '8px 16px', fontSize: '0.7rem' }} onClick={() => setView('planner')}>Go to Planner</button>
+            <div className="dashboard-layout dashboard-layout-v2">
+              <section className="dashboard-hero-card">
+                <div className="hero-main">
+                  <div className="hero-chip">{greetingLabel}</div>
+                  <h3 className="hero-title">{firstName}, here is your daily briefing.</h3>
+                  <p className="hero-subtitle">
+                    {todaysEventSummary.totalEvents === 0
+                      ? 'No events planned today. Generate a look and schedule your next occasion.'
+                      : `${todaysEventSummary.totalEvents} event${todaysEventSummary.totalEvents > 1 ? 's' : ''} today, ${todaysEventSummary.plannedCount} outfit${todaysEventSummary.plannedCount !== 1 ? 's' : ''} ready.`}
+                  </p>
+
+                  <div className="hero-metrics-grid">
+                    <div className="hero-metric-card">
+                      <span>today's events</span>
+                      <strong>{todaysEventSummary.totalEvents}</strong>
+                    </div>
+                    <div className="hero-metric-card">
+                      <span>ready outfits</span>
+                      <strong>{todaysEventSummary.plannedCount}</strong>
+                    </div>
+                    <div className="hero-metric-card">
+                      <span>need planning</span>
+                      <strong>{todaysEventSummary.missingCount}</strong>
+                    </div>
+                    <div className="hero-metric-card">
+                      <span>week readiness</span>
+                      <strong>{weekDaysWithEvents.length === 0 ? 'n/a' : `${weekReadyDays}/${weekDaysWithEvents.length}`}</strong>
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '15px' }}>
-                    {todaysEvents.map(event => (
-                      <div key={event.id} style={{ background: 'var(--card-bg)', borderRadius: '15px', padding: '15px', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--fg)' }}>{event.name}</h4>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--fg-muted)' }}>{event.type} • {event.location}</span>
-                          </div>
-                          {event.todayItinerary && (
-                            <span style={{ fontSize: '0.6rem', background: 'var(--bg-raised)', padding: '4px 8px', borderRadius: '10px', color: 'var(--fg-muted)' }}>{event.todayItinerary.moment}</span>
-                          )}
+
+                  <div className="hero-actions-row">
+                    <button className="hero-primary-action" onClick={() => handleQuickAction('generate-today')} disabled={loading || clothes.length === 0}>
+                      Generate today&apos;s outfit
+                    </button>
+                    <button className="hero-secondary-action" onClick={openPlannerForToday}>
+                      Plan missing looks
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hero-side-panel">
+                  <button
+                    className="hero-location-button"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setCityModal(true);
+                    }}
+                  >
+                    {city}
+                  </button>
+                  <div className="hero-weather-temp">{weatherInfo ? `${Math.round(weatherInfo.temperature)}°C` : '--'}</div>
+                  <div className="hero-weather-condition">{weatherInfo?.condition || 'weather updating...'}</div>
+                  <div className="hero-weather-meta">season tip: {weatherInfo?.seasonSuggestion || 'n/a'}</div>
+                  <div className="hero-readiness-block">
+                    <span>today readiness</span>
+                    <strong>{todaysReadinessPercent}%</strong>
+                    <div className="hero-progress-track">
+                      <div className="hero-progress-fill" style={{ width: `${todaysReadinessPercent}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="dashboard-quick-actions-card">
+                <div className="dashboard-section-header">
+                  <h3>Quick actions</h3>
+                  <span>one-click workflows</span>
+                </div>
+                <div className="quick-actions-grid">
+                  {quickActions.map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      className="quick-action-button"
+                      onClick={() => handleQuickAction(action.id)}
+                      disabled={action.disabled}
+                    >
+                      <strong>{action.label}</strong>
+                      <span>{action.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="dashboard-week-strip-card">
+                <div className="dashboard-section-header">
+                  <h3>Upcoming 7 days</h3>
+                  <span>tap any day to jump into planner</span>
+                </div>
+                <div className="week-strip-grid">
+                  {upcomingWeekDays.map((day) => (
+                    <div
+                      key={day.dayKey}
+                      className={`week-day-card ${day.isToday ? 'today' : ''} ${day.status}`}
+                      onClick={() => setPreviewDay(day)}
+                      style={{ cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column' }}
+                    >
+                      <div className="week-day-top">
+                        <span>{day.weekdayLabel}</span>
+                        {day.isToday && <small>today</small>}
+                      </div>
+                      <strong>{day.dayLabel}</strong>
+                      <p className="week-day-weather">
+                        {day.weather?.temperature !== undefined
+                          ? `${Math.round(day.weather.temperature)}°C • ${day.weather.condition}`
+                          : 'forecast pending'}
+                      </p>
+                      <p className="week-day-event-name">
+                        {day.primaryEvent
+                          ? `${day.primaryEvent.name}${day.totalEvents > 1 ? ` +${day.totalEvents - 1}` : ''}`
+                          : 'No planned events'}
+                      </p>
+                      
+                      {day.primaryItinerary?.outfit && (
+                        <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', margin: '8px 0', justifyContent: 'center' }}>
+                          {day.primaryItinerary.outfit.items?.slice(0, 3).map(item => (
+                            <img 
+                              key={item.id} 
+                              src={item.processedImageUrl} 
+                              alt={item.name} 
+                              style={{ width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-subtle)', objectFit: 'cover', flexShrink: 0 }} 
+                            />
+                          ))}
                         </div>
-                        
-                        {event.todayItinerary?.outfit ? (
-                          <div style={{ marginTop: '10px' }}>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', marginBottom: '5px' }}>PLANNED OUTFIT</div>
-                            <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px' }}>
-                              {event.todayItinerary.outfit.items?.map(item => (
-                                <div key={item.id} style={{ width: '40px', height: '40px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-                                  <img src={item.processedImageUrl} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                </div>
-                              ))}
-                            </div>
-                            <button 
-                              onClick={() => onWearOutfit(event.todayItinerary.outfit.id)} 
-                              style={{ width: '100%', marginTop: '10px', background: 'var(--accent-bg)', color: 'var(--accent-fg)', border: '1px solid var(--accent)', padding: '8px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 'bold', cursor: 'pointer' }}
-                            >
-                              WEAR THIS TODAY
-                            </button>
-                          </div>
-                        ) : (
-                          <div style={{ marginTop: '10px', padding: '15px', background: 'var(--bg-subtle)', borderRadius: '10px', textAlign: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', display: 'block', marginBottom: '10px' }}>No outfit planned for today</span>
-                            <button 
-                              onClick={() => {
-                                setSelectedPlannerEvent(event);
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                const start = new Date(event.startDate);
-                                start.setHours(0, 0, 0, 0);
-                                const diffTime = Math.abs(today - start);
-                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                                setSelectedDayIndex(diffDays);
-                                setView('planner');
-                              }} 
-                              style={{ background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 'bold', cursor: 'pointer' }}
-                            >
-                              PLAN OUTFIT
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      )}
 
-              {/* Quick Stats & Recent Items */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div className="dashboard-section">
-                  <h3 className="section-title" style={{ fontSize: '1rem', marginBottom: '15px', color: 'var(--fg)' }}>Quick Stats</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div style={{ background: 'var(--card-bg)', padding: '15px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent)' }}>{clothes.length}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Items</div>
+                      <span className="week-day-status" style={{ marginTop: 'auto' }}>
+                        {day.totalEvents === 0
+                          ? 'Free day'
+                          : day.status === 'planned'
+                            ? `Ready ${day.plannedCount}/${day.totalEvents}`
+                            : `Needs plan ${day.plannedCount}/${day.totalEvents}`}
+                      </span>
                     </div>
-                    <div style={{ background: 'var(--card-bg)', padding: '15px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent)' }}>{outfits.length}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Outfits</div>
-                    </div>
-                    <div style={{ background: 'var(--card-bg)', padding: '15px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center', gridColumn: 'span 2' }}>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent)' }}>{Math.round(usageRate)}%</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Wardrobe Usage (7d)</div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
+              </section>
 
-                <div className="dashboard-section">
-                  <h3 className="section-title" style={{ fontSize: '1rem', marginBottom: '15px', color: 'var(--fg)' }}>Recently Added</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                    {clothes.slice(0, 6).map(item => (
-                      <div key={item.id} style={{ aspectRatio: '1', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-subtle)', cursor: 'pointer' }} onClick={() => { setSelectedItem(item); setView('clothes'); }}>
-                        <img src={item.processedImageUrl} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      </div>
-                    ))}
-                    {clothes.length === 0 && (
-                      <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '20px', color: 'var(--fg-muted)', fontSize: '0.8rem', background: 'var(--bg-subtle)', borderRadius: '10px' }}>
-                        No items yet.
-                      </div>
-                    )}
-                  </div>
+              <section className="dashboard-weather-compact">
+                <div className="dashboard-section-header">
+                  <h3>Weather focus</h3>
+                  <span>quick context for generation</span>
                 </div>
-              </div>
+                <div className="weather-compact-content">
+                  <button
+                    className="weather-compact-location"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setCityModal(true);
+                    }}
+                  >
+                    {city}
+                  </button>
+                  <div className="weather-compact-info">
+                    <strong>{weatherInfo ? `${Math.round(weatherInfo.temperature)}°C` : '--'}</strong>
+                    <span>{weatherInfo?.condition || 'condition unavailable'}</span>
+                    <small>season suggestion: {weatherInfo?.seasonSuggestion || 'n/a'}</small>
+                  </div>
+                  <button className="hero-primary-action compact" onClick={() => handleQuickAction('generate-today')} disabled={loading || clothes.length === 0}>
+                    Generate now
+                  </button>
+                </div>
+              </section>
+
+              {/* Sections Removed as requested */}
             </div>
           ) : view === 'clothes' ? (
             <div className="wardrobe-container">
@@ -1324,9 +1691,33 @@ const onUpdateItinerary = async () => {
                       <div className="timeline-actions">
                         <button 
                           className="gen-btn"
+                          onClick={() => handlePackSmart(selectedPlannerEvent.id)}
+                          style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}
+                        >
+                          PACK SMART 🎒
+                        </button>
+                        <button 
+                          className="gen-btn"
                           onClick={() => onGenerateEventOutfits(selectedPlannerEvent.id)}
                         >
                           GENERATE OUTFITS
+                        </button>
+                        <button 
+                          className="small-action-btn"
+                          onClick={() => {
+                            setEditEventData({
+                              id: selectedPlannerEvent.id,
+                              name: selectedPlannerEvent.name,
+                              type: selectedPlannerEvent.type,
+                              location: selectedPlannerEvent.location,
+                              startDate: selectedPlannerEvent.startDate.split('T')[0],
+                              endDate: selectedPlannerEvent.endDate.split('T')[0],
+                              preferredStyles: selectedPlannerEvent.preferredStyles || []
+                            });
+                            setEditEventModal(true);
+                          }}
+                        >
+                          EDIT EVENT
                         </button>
                         <button 
                           className="delete-outfit-btn"
@@ -1446,7 +1837,7 @@ const onUpdateItinerary = async () => {
                         <p>No outfit planned for this day</p>
                         <button 
                           className="gen-btn"
-                          onClick={() => { setPlanData({ outfitId: null, plannerEventId: selectedPlannerEvent.id, selectedDayIndex: selectedDayIndex, moment: '' }); setPlanModal(true); }}
+                          onClick={() => openOutfitEditingModal(selectedPlannerEvent.id, null, plannerDays[selectedDayIndex], selectedDayIndex, 'plan')}
                         >
                           PLAN OUTFIT
                         </button>
@@ -1507,660 +1898,164 @@ const onUpdateItinerary = async () => {
                   </div>
                 </div>
               </div>
-
-              <StatsSection userId={userId} />
-            </div>
-          )}
-          <input type="file" ref={fileInputRef} onChange={(e) => { const file = e.target.files[0]; if (file) { setUploadData({ file, name: file.name.split('.')[0] }); setUploadModal(true); } }} accept=".jpg,.jpeg,.png,.webp" hidden />
-        </div>
-      </main>
-
-      <Modal isOpen={uploadModal} onClose={() => setUploadModal(false)} title="Set Name" size="small">
-        <input className="name-input" value={uploadData.name} onChange={e => setUploadData({...uploadData, name: e.target.value})} autoFocus />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <Button label="Confirm" onClick={onUpload} loading={loading} />
-          <Button label="Cancel" variant="secondary" onClick={() => setUploadModal(false)} />
-        </div>
-      </Modal>
-
-      <Modal isOpen={editModal} onClose={() => setEditModal(false)} title="Edit Outfit" size="large">
-        <div className="edit-outfit-container">
-          <input className="name-input" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} />
-          <div className="edit-items-grid">
-            {clothes.map(item => {
-              const isSelected = editData.itemIds.includes(item.id);
-              return (
-                <div key={item.id} className={`selectable-item ${isSelected ? 'selected' : ''}`} onClick={() => {
-                  if (isSelected) setEditData({...editData, itemIds: editData.itemIds.filter(id => id !== item.id)});
-                  else {
-                    const sameType = clothes.find(c => editData.itemIds.includes(c.id) && c.type === item.type);
-                    const newIds = sameType ? [...editData.itemIds.filter(id => id !== sameType.id), item.id] : [...editData.itemIds, item.id];
-                    setEditData({...editData, itemIds: newIds});
-                  }
-                }}>
-                  <img src={item.processedImageUrl} alt="" />
-                  <div className="check-badge">{isSelected ? '✓' : '+'}</div>
-                </div>
-              );
-            })}
-          </div>
-          <Button label="Save Outfit" onClick={onEditSave} loading={loading} />
-        </div>
-      </Modal>
-
-      <Modal isOpen={!!selectedItem} onClose={() => { setSelectedItem(null); setEditItemMode(false); }} title={editItemMode ? `Editing ${selectedItem?.name}` : selectedItem?.name} size="medium">
-        {selectedItem && (
-          <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ textAlign: 'center', background: 'var(--bg-subtle)', borderRadius: '20px', padding: '15px', border: '1px solid var(--border-subtle)' }}>
-              <img src={selectedItem.processedImageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '350px', borderRadius: '15px', objectFit: 'contain' }} />
-            </div>
-
-            {editItemMode ? (
-              <div className="inspect-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>NAME</span>
-                  <input className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.name} onChange={e => setEditItemData({...editItemData, name: e.target.value})} />
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>TYPE</span>
-                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={typeof editItemData.type === 'number' ? CLOTHING_TYPES[editItemData.type] : editItemData.type} onChange={e => setEditItemData({...editItemData, type: CLOTHING_TYPES.indexOf(e.target.value)})}>
-                    {CLOTHING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>COLOR</span>
-                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.color} onChange={e => setEditItemData({...editItemData, color: e.target.value})}>
-                    {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>GENDER</span>
-                  <select className="name-input" style={{ fontSize: '0.8rem', padding: '8px' }} value={editItemData.gender} onChange={e => setEditItemData({...editItemData, gender: e.target.value})}>
-                    {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '10px' }}>SEASON (MULTI-SELECT)</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {SEASONS.map(s => {
-                      const isSelected = editItemData.season.includes(s);
-                      return (
-                        <button 
-                          key={s} 
-                          onClick={() => {
-                            const newSeasons = isSelected ? editItemData.season.filter(item => item !== s) : [...editItemData.season, s];
-                            setEditItemData({...editItemData, season: newSeasons});
-                          }}
-                          style={{
-                            padding: '6px 12px', fontSize: '0.6rem', borderRadius: '8px', border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border-muted)',
-                            background: isSelected ? 'var(--accent-bg)' : 'var(--card-bg)', color: isSelected ? 'var(--accent-fg)' : 'var(--fg-muted)', cursor: 'pointer', fontFamily: 'JetBrains Mono'
-                          }}
-                        >{s.toUpperCase()}</button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '10px' }}>USAGE / STYLE (MULTI-SELECT)</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {USAGES.map(u => {
-                      const isSelected = editItemData.usage.includes(u);
-                      return (
-                        <button 
-                          key={u} 
-                          onClick={() => {
-                            const newUsage = isSelected ? editItemData.usage.filter(item => item !== u) : [...editItemData.usage, u];
-                            setEditItemData({...editItemData, usage: newUsage});
-                          }}
-                          style={{
-                            padding: '6px 12px', fontSize: '0.6rem', borderRadius: '8px', border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border-muted)',
-                            background: isSelected ? 'var(--accent-bg)' : 'var(--card-bg)', color: isSelected ? 'var(--accent-fg)' : 'var(--fg-muted)', cursor: 'pointer', fontFamily: 'JetBrains Mono'
-                          }}
-                        >{u.toUpperCase()}</button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="inspect-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>TYPE</span>
-                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{CLOTHING_TYPES[selectedItem.type] || selectedItem.type}</span>
-                </div>
-                <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>COLOR</span>
-                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.color?.toUpperCase()}</span>
-                </div>
-                <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>GENDER</span>
-                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.gender?.toUpperCase() || 'UNISEX'}</span>
-                </div>
-                <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>SEASON</span>
-                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.season?.toUpperCase() || 'ANY'}</span>
-                </div>
-                <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-subtle)', gridColumn: 'span 2' }}>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '4px' }}>USAGE</span>
-                  <span className="robotic-text" style={{ fontSize: '0.75rem' }}>{selectedItem.usage?.toUpperCase() || 'CASUAL'}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
-              {editItemMode ? (
-                <>
-                  <button className="gen-btn" onClick={onUpdateItem} disabled={loading} style={{ flex: 2 }}>
-                    {loading ? 'SAVING...' : 'SAVE CHANGES'}
-                  </button>
-                  <button className="close-link" onClick={() => setEditItemMode(false)} style={{ flex: 1 }}>
-                    CANCEL
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button className="gen-btn" onClick={() => onGenerate(selectedItem)} disabled={loading} style={{ flex: 2 }}>
-                    {loading ? 'GENERATING...' : 'GENERATE OUTFIT'}
-                  </button>
-                  <button className="close-link" onClick={() => { 
-                    setEditItemData({
-                      ...selectedItem, 
-                      season: toStringArray(selectedItem.season),
-                      usage: toStringArray(selectedItem.usage)
-                    }); 
-                    setEditItemMode(true); 
-                  }} style={{ flex: 1 }}>
-                    EDIT
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal isOpen={styleSelectionModal} onClose={() => setStyleSelectionModal(false)} title="SELECT OUTFIT STYLE" size="medium">
-        <div style={{ padding: '10px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px' }}>
-            {USAGES.map(style => (
-              <button key={style} onClick={() => executeGeneration(style)} style={{ padding: '20px', background: 'var(--card-bg)', color: 'var(--fg)', border: '1px solid var(--border-subtle)', borderRadius: '15px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontWeight: '900', fontSize: '0.9rem', letterSpacing: '1px' }}>{style.toUpperCase()}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={aiModal} onClose={() => setAiModal(false)} title="AI OUTFIT SUGGESTION" size="large">
-        {aiData && (
-          <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px' }}>
-            <input className="name-input" value={aiData.name} onChange={e => setAiData({...aiData, name: e.target.value})} style={{ width: '100%', fontSize: '24px', marginBottom: '20px' }} />
-            <div className="clothes-grid">
-              {aiData.selectedItems.map(item => (
-                <div key={item.id} className="item-card"><img src={item.processedImageUrl} alt="" /></div>
-              ))}
-            </div>
-            <div className="modal-actions" style={{ marginTop: '20px' }}>
-              <Button label="CONFIRM & SAVE" onClick={onSaveAiOutfit} loading={loading} />
-              <Button label="DISCARD" variant="secondary" onClick={() => setAiModal(false)} />
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal isOpen={validationModal} onClose={() => setValidationModal(false)} title="Verify AI Prediction" size="medium">
-        {renderValidationStep()}
-      </Modal>
-
-      <Modal isOpen={cityModal} onClose={() => setCityModal(false)} title="SELECT LOCATION" size="small">
-        <div style={{ padding: '10px' }}>
-          <input className="name-input" placeholder="Type city..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-            {citySuggestions.map((c, idx) => (
-              <button key={idx} onClick={() => { handleCityChange(c.name); setCityModal(false); }} style={{ width: '100%', padding: '10px', textAlign: 'left', background: 'none', border: '1px solid var(--border-subtle)', marginBottom: '5px', color: 'var(--fg)' }}>
-                {c.name}, {c.country}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={planModal} onClose={() => setPlanModal(false)} title="PLAN OUTFIT TO EVENT" size="medium">
-        <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>SELECT EVENT</span>
-            <select 
-              className="name-input" 
-              value={planData.plannerEventId} 
-              onChange={e => setPlanData({...planData, plannerEventId: e.target.value, selectedDayIndex: null})}
-              style={{ width: '100%' }}
-            >
-              <option value="">-- Select Event --</option>
-              {plannerEvents.map(event => (
-                <option key={event.id} value={event.id}>
-                  {event.name} ({new Date(event.startDate).toLocaleDateString()} - {new Date(event.endDate).toLocaleDateString()})
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          {planData.plannerEventId && (
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>SELECT DAY</span>
-              <select 
-                className="name-input" 
-                value={planData.selectedDayIndex !== null ? planData.selectedDayIndex : ''}
-                onChange={e => setPlanData({...planData, selectedDayIndex: parseInt(e.target.value)})}
-                style={{ width: '100%' }}
-              >
-                <option value="">-- Select Day --</option>
-                {currentEventDays.map(day => (
-                  <option key={day.index} value={day.index}>
-                    {day.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          
-          <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>MOMENT (e.g. Morning, Dinner, Flight)</span>
-            <input 
-              type="text" 
-              className="name-input" 
-              value={planData.moment} 
-              onChange={e => setPlanData({...planData, moment: e.target.value})}
-              placeholder="Enter moment..."
-            />
-          </div>
-          
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-            <Button label="PLAN" onClick={onPlanOutfit} loading={loading} disabled={!planData.plannerEventId || planData.selectedDayIndex === null || !planData.moment} />
-            <Button label="CANCEL" variant="secondary" onClick={() => setPlanModal(false)} />
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={editItineraryModal} onClose={() => { setEditItineraryModal(false); setEditItineraryData({ plannerEventId: '', itineraryId: '', outfitId: '', date: '', moment: '' }); }} title="EDIT ITINERARY" size="medium">
-        <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          {/* Current Outfit Display (read-only) */}
-          {editItineraryData.outfitId && (
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '8px' }}>CURRENT OUTFIT</span>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', padding: '10px', background: 'var(--bg-subtle)', borderRadius: '12px' }}>
-                {(() => {
-                  const outfit = outfits.find(o => o.id === editItineraryData.outfitId);
-                  return outfit ? (
-                    <>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 'bold', width: '100%', marginBottom: '4px' }}>{outfit.name}</div>
-                      {outfit.items?.map(item => (
-                        <div key={item.id} style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                          <img src={item.processedImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        </div>
-                      ))}
-                    </>
-                  ) : <span style={{ fontSize: '0.7rem', color: 'var(--fg-muted)' }}>No items</span>;
-                })()}
-              </div>
-              <div style={{ fontSize: '0.6rem', color: 'var(--fg-faint)', marginTop: '8px' }}>To change outfit, please remove this one and plan a new outfit</div>
             </div>
           )}
 
-          <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>DATE</span>
-            <input
-              type="date"
-              className="name-input"
-              value={editItineraryData.date}
-              onChange={(e) => setEditItineraryData({ ...editItineraryData, date: e.target.value })}
-            />
-          </div>
+      <UploadModal 
+        isOpen={uploadModal} 
+        onClose={() => setUploadModal(false)} 
+        uploadData={uploadData} 
+        setUploadData={setUploadData} 
+        onUpload={onUpload} 
+        loading={loading} 
+      />
 
-          <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>MOMENT</span>
-            <input
-              type="text"
-              className="name-input"
-              value={editItineraryData.moment}
-              onChange={(e) => setEditItineraryData({ ...editItineraryData, moment: e.target.value })}
-              placeholder="Morning, Dinner, Travel..."
-            />
-          </div>
+      <EditOutfitModal 
+        isOpen={editModal} 
+        onClose={() => setEditModal(false)} 
+        editData={editData} 
+        setEditData={setEditData} 
+        clothes={clothes} 
+        onEditSave={onEditSave} 
+        loading={loading} 
+      />
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-            <Button label="SAVE" onClick={onUpdateItinerary} loading={loading} disabled={!editItineraryData.date || !editItineraryData.moment} />
-            <Button label="CANCEL" variant="secondary" onClick={() => setEditItineraryModal(false)} />
-          </div>
-        </div>
-      </Modal>
+      <ItemInspectModal 
+        isOpen={!!selectedItem} 
+        onClose={() => { setSelectedItem(null); setEditItemMode(false); }} 
+        selectedItem={selectedItem} 
+        editItemMode={editItemMode} 
+        setEditItemMode={setEditItemMode} 
+        editItemData={editItemData} 
+        setEditItemData={setEditItemData} 
+        onUpdateItem={onUpdateItem} 
+        onGenerate={onGenerate} 
+        loading={loading} 
+      />
 
-{/* CREATE EVENT MODAL - 3-Step Wizard */}
-      <Modal 
+      <StyleSelectionModal 
+        isOpen={styleSelectionModal} 
+        onClose={() => setStyleSelectionModal(false)} 
+        executeGeneration={executeGeneration} 
+      />
+
+      <AiSuggestionModal 
+        isOpen={aiModal} 
+        onClose={() => setAiModal(false)} 
+        aiData={aiData} 
+        setAiData={setAiData} 
+        onSaveAiOutfit={onSaveAiOutfit} 
+        loading={loading} 
+      />
+
+      <ValidationModal 
+        isOpen={validationModal} 
+        onClose={() => setValidationModal(false)} 
+        renderValidationStep={renderValidationStep} 
+      />
+
+      <CitySelectionModal 
+        isOpen={cityModal} 
+        onClose={() => setCityModal(false)} 
+        searchTerm={searchTerm} 
+        setSearchTerm={setSearchTerm} 
+        citySuggestions={citySuggestions} 
+        handleCityChange={handleCityChange} 
+      />
+
+      <PlanOutfitModal 
+        isOpen={planModal} 
+        onClose={() => setPlanModal(false)} 
+        planData={planData} 
+        setPlanData={setPlanData} 
+        plannerEvents={plannerEvents} 
+        currentEventDays={currentEventDays} 
+        onPlanOutfit={onPlanOutfit} 
+        loading={loading} 
+      />
+
+      <EditItineraryModal 
+        isOpen={editItineraryModal} 
+        onClose={() => { setEditItineraryModal(false); setEditItineraryData({ plannerEventId: "", itineraryId: "", outfitId: "", date: "", moment: "" }); }} 
+        editItineraryData={editItineraryData} 
+        setEditItineraryData={setEditItineraryData} 
+        outfits={outfits} 
+        onUpdateItinerary={onUpdateItinerary} 
+        loading={loading} 
+      />
+
+      {/* CREATE EVENT MODAL - 3-Step Wizard */}
+      <CreateEventModal 
         isOpen={createEventModal} 
         onClose={() => { 
           setCreateEventModal(false); 
           setWizardStep(0); 
           setWizardPreview(null); 
-          setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '' }); 
+          setCreateEventData({ name: "", type: "Vacation", location: "", startDate: "", endDate: "", preferredStyles: [] }); 
         }} 
-        title={wizardStep === 0 ? "CREATE NEW EVENT" : "EVENT PREVIEW"} 
-        size="large"
-      >
-        {/* Step Indicator */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '20px', padding: '0 10px' }}>
-          {[0, 1].map(step => (
-            <div key={step} style={{ 
-              width: '80px', 
-              height: '4px', 
-              borderRadius: '2px', 
-              background: step <= wizardStep ? 'var(--accent)' : 'var(--border-subtle)',
-              transition: 'all 0.3s'
-            }} />
-          ))}
-        </div>
-
-        {/* Step 0: Event Details */}
-        {wizardStep === 0 && (
-          <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>EVENT NAME</span>
-              <input 
-                type="text" 
-                className="name-input" 
-                value={createEventData.name} 
-                onChange={e => setCreateEventData({...createEventData, name: e.target.value})}
-                placeholder="e.g. Summer Vacation 2026"
-                autoFocus
-              />
-            </div>
-            
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>EVENT TYPE</span>
-              <select 
-                className="name-input" 
-                value={createEventData.type} 
-                onChange={e => setCreateEventData({...createEventData, type: e.target.value})}
-                style={{ width: '100%' }}
-              >
-                <option value="Vacation">Vacation</option>
-                <option value="Business Trip">Business Trip</option>
-                <option value="Wedding">Wedding</option>
-                <option value="Party">Party</option>
-                <option value="Meeting">Meeting</option>
-                <option value="Date">Date</option>
-                <option value="Weekend">Weekend</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>LOCATION</span>
-              <div style={{ position: 'relative' }}>
-                <input 
-                  type="text" 
-                  className="name-input" 
-                  value={createEventData.location} 
-                  onChange={e => {
-                    setCreateEventData({...createEventData, location: e.target.value});
-                    setEventLocationSearch(e.target.value);
-                  }}
-                  placeholder="e.g. Paris, France"
-                />
-                {eventLocationSuggestions.length > 0 && (
-                  <div style={{ 
-                    position: 'absolute', 
-                    top: '100%', 
-                    left: 0, 
-                    right: 0, 
-                    background: 'var(--card-bg)', 
-                    border: '1px solid var(--border-subtle)', 
-                    borderRadius: '8px',
-                    maxHeight: '150px',
-                    overflowY: 'auto',
-                    zIndex: 1000,
-                    marginTop: '4px'
-                  }}>
-                    {eventLocationSuggestions.map((city, idx) => (
-                      <button 
-                        key={idx}
-                        onClick={() => {
-                          setCreateEventData({...createEventData, location: `${city.name}, ${city.country}`});
-                          setEventLocationSearch('');
-                          setEventLocationSuggestions([]);
-                        }}
-                        style={{ 
-                          width: '100%', 
-                          padding: '8px 12px', 
-                          textAlign: 'left', 
-                          background: 'none', 
-                          border: 'none',
-                          borderBottom: '1px solid var(--border-subtle)',
-                          color: 'var(--fg)',
-                          cursor: 'pointer',
-                          fontSize: '0.8rem'
-                        }}
-                      >
-                        {city.name}, {city.country}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>START DATE</span>
-                <input 
-                  type="date" 
-                  className="name-input" 
-                  value={createEventData.startDate} 
-                  onChange={e => {
-                    const newStartDate = e.target.value;
-                    setCreateEventData({
-                      ...createEventData, 
-                      startDate: newStartDate,
-                      endDate: createEventData.endDate || newStartDate
-                    });
-                  }}
-                />
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', display: 'block', marginBottom: '5px' }}>END DATE</span>
-                <input 
-                  type="date" 
-                  className="name-input" 
-                  value={createEventData.endDate} 
-                  onChange={e => setCreateEventData({...createEventData, endDate: e.target.value})}
-                />
-              </div>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-              <Button 
-                label="NEXT PREVIEW" 
-                onClick={onPreviewEvent} 
-                loading={wizardLoading} 
-                disabled={!createEventData.name || !createEventData.location || !createEventData.startDate || !createEventData.endDate} 
-              />
-              <Button 
-                label="CANCEL" 
-                variant="secondary" 
-                onClick={() => { 
-                  setCreateEventModal(false); 
-                  setWizardStep(0); 
-                  setWizardPreview(null); 
-                  setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '' }); 
-                }} 
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Step 1: Preview with Weather */}
-        {wizardStep === 1 && wizardPreview && (
-          <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div style={{ 
-              background: 'var(--bg-subtle)', 
-              padding: '15px', 
-              borderRadius: '12px', 
-              border: '1px solid var(--border-subtle)',
-              marginBottom: '10px'
-            }}>
-              <div style={{ fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '5px' }}>{createEventData.name}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>
-                {createEventData.type} • {createEventData.location}
-              </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', marginTop: '5px' }}>
-                {new Date(createEventData.startDate).toLocaleDateString()} - {new Date(createEventData.endDate).toLocaleDateString()}
-              </div>
-            </div>
-
-            <div style={{ fontSize: '0.7rem', color: 'var(--fg-faint)', marginBottom: '5px' }}>
-              WEATHER FORECAST ({wizardPreview.location})
-            </div>
-            
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', 
-              gap: '10px',
-              maxHeight: '250px',
-              overflowY: 'auto'
-            }}>
-              {wizardPreview.days.map((day, idx) => (
-                <div key={idx} style={{ 
-                  background: 'var(--card-bg)', 
-                  padding: '10px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-subtle)',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: '0.6rem', color: 'var(--fg-muted)', marginBottom: '4px' }}>
-                    {day.date.toLocaleDateString(undefined, { weekday: 'short' })}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
-                    Day {day.dayNumber}
-                  </div>
-                  <div style={{ 
-                    background: 'var(--accent-bg)', 
-                    padding: '4px 8px', 
-                    borderRadius: '8px',
-                    marginTop: '6px'
-                  }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--accent-fg)' }}>
-                      {Math.round(day.weather?.temperature || 20)}°C
-                    </div>
-                    <div style={{ fontSize: '0.5rem', color: 'var(--accent-fg)', opacity: 0.8 }}>
-                      {day.weather?.condition || 'N/A'}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-              <Button label="BACK" variant="secondary" onClick={() => setWizardStep(0)} />
-              <Button label="CREATE EVENT" onClick={onCreatePlannerEvent} loading={loading} />
-            </div>
-          </div>
-        )}
-      </Modal>
+        wizardStep={wizardStep} 
+        setWizardStep={setWizardStep} 
+        wizardPreview={wizardPreview} 
+        setWizardPreview={setWizardPreview} 
+        createEventData={createEventData} 
+        setCreateEventData={setCreateEventData} 
+        eventLocationSearch={eventLocationSearch} 
+        setEventLocationSearch={setEventLocationSearch} 
+        eventLocationSuggestions={eventLocationSuggestions} 
+        setEventLocationSuggestions={setEventLocationSuggestions} 
+        onPreviewEvent={onPreviewEvent} 
+        onCreatePlannerEvent={onCreatePlannerEvent} 
+        wizardLoading={wizardLoading} 
+        loading={loading} 
+      />
+      {/* EDIT EVENT MODAL */}
+      <EditEventModal 
+        isOpen={editEventModal} 
+        onClose={() => setEditEventModal(false)} 
+        editEventData={editEventData} 
+        setEditEventData={setEditEventData} 
+        onUpdatePlannerEvent={onUpdatePlannerEvent} 
+        loading={loading} 
+      />
 
       {/* CUSTOM OUTFIT MODAL */}
-      <Modal isOpen={customOutfitModal} onClose={() => setCustomOutfitModal(false)} title="BUILD CUSTOM OUTFIT" size="large">
-        <div className="edit-outfit-container">
-          <input 
-            className="name-input" 
-            placeholder="Name your outfit (e.g. Casual Friday)..." 
-            value={customOutfitData.name} 
-            onChange={e => setCustomOutfitData({...customOutfitData, name: e.target.value})} 
-          />
-          
-          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px' }}>
-            {CLOTHING_TYPES.map((type, idx) => (
-              <button 
-                key={type}
-                onClick={() => setCustomOutfitTab(idx)}
-                style={{ 
-                  padding: '8px 16px', 
-                  borderRadius: '20px', 
-                  border: 'none', 
-                  background: customOutfitTab === idx ? 'var(--accent-bg)' : 'var(--bg-raised)', 
-                  color: customOutfitTab === idx ? 'var(--accent-fg)' : 'var(--fg-muted)',
-                  fontSize: '0.7rem',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {type}
-              </button>
-            ))}
-          </div>
-
-          <div className="edit-items-grid" style={{ maxHeight: '400px', overflowY: 'auto', padding: '10px', border: '1px solid var(--border-subtle)', borderRadius: '15px' }}>
-            {clothes.filter(c => c.type === customOutfitTab).map(item => {
-              const isSelected = customOutfitData.itemIds.includes(item.id);
-              return (
-                <div key={item.id} className={`selectable-item ${isSelected ? 'selected' : ''}`} onClick={() => {
-                  if (isSelected) {
-                    setCustomOutfitData({...customOutfitData, itemIds: customOutfitData.itemIds.filter(id => id !== item.id)});
-                  } else {
-                    const sameType = clothes.find(c => customOutfitData.itemIds.includes(c.id) && c.type === item.type);
-                    const newIds = sameType ? [...customOutfitData.itemIds.filter(id => id !== sameType.id), item.id] : [...customOutfitData.itemIds, item.id];
-                    setCustomOutfitData({...customOutfitData, itemIds: newIds});
-                  }
-                }}>
-                  <img src={item.processedImageUrl} alt="" />
-                  <div className="check-badge">{isSelected ? '✓' : '+'}</div>
-                </div>
-              );
-            })}
-            {clothes.filter(c => c.type === customOutfitTab).length === 0 && (
-              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px', color: 'var(--fg-faint)', fontSize: '0.8rem' }}>
-                No items in this category.
-              </div>
-            )}
-          </div>
-          
-          <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: '5px' }}>
-              {customOutfitData.itemIds.map(id => {
-                const item = clothes.find(c => c.id === id);
-                if (!item) return null;
-                return (
-                  <div key={id} style={{ width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                    <img src={item.processedImageUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt=""/>
-                  </div>
-                )
-              })}
-            </div>
-            <Button label="SAVE OUTFIT" onClick={onSaveCustomOutfit} loading={loading} />
-          </div>
-        </div>
-      </Modal>
+      <CustomOutfitModal 
+        isOpen={customOutfitModal} 
+        onClose={() => setCustomOutfitModal(false)} 
+        customOutfitData={customOutfitData} 
+        setCustomOutfitData={setCustomOutfitData} 
+        customOutfitTab={customOutfitTab} 
+        setCustomOutfitTab={setCustomOutfitTab} 
+        clothes={clothes} 
+        onSaveCustomOutfit={onSaveCustomOutfit} 
+        loading={loading} 
+      />
 
       {/* GENERATING OUTFITS MODAL */}
-      <Modal isOpen={generatingModal} onClose={() => setGeneratingModal(false)} title="GENERATING OUTFITS" size="small">
-        <div style={{ padding: '30px', textAlign: 'center' }}>
-          {generatingProgress && (
-            <>
-              <div style={{ fontSize: '1rem', fontWeight: 'bold', marginBottom: '10px' }}>{generatingProgress.status}</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-                {generatingProgress.current} / {generatingProgress.total} days processed
-              </div>
-              <div style={{ marginTop: '15px', background: 'var(--bg-subtle)', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
-                <div style={{ 
-                  width: `${generatingProgress.total > 0 ? (generatingProgress.current / generatingProgress.total) * 100 : 0}%`, 
-                  height: '100%', 
-                  background: 'var(--accent)',
-                  transition: 'width 0.3s ease'
-                }} />
-              </div>
-            </>
-          )}
-        </div>
-      </Modal>
+      <GeneratingModal 
+        isOpen={generatingModal} 
+        onClose={() => setGeneratingModal(false)} 
+        generatingProgress={generatingProgress} 
+      />
+
+      <DayPreviewModal 
+        isOpen={!!previewDay} 
+        onClose={() => setPreviewDay(null)} 
+        previewDay={previewDay} 
+        onWearOutfit={onWearOutfit} 
+        setSelectedPlannerEvent={setSelectedPlannerEvent} 
+        setSelectedDayIndex={setSelectedDayIndex} 
+        getDayOffset={getDayOffset} 
+        setView={setView} 
+      />
+      {/* PACK SMART MODAL */}
+      <PackSmartModal 
+        isOpen={packSmartModal} 
+        onClose={() => setPackSmartModal(false)} 
+        packSmartData={packSmartData} 
+        packedItems={packedItems} 
+        setPackedItems={setPackedItems} 
+      />
 
       {/* OUTFIT EDITING MODAL */}
       <OutfitEditingModal
@@ -2170,10 +2065,13 @@ const onUpdateItinerary = async () => {
         clothes={clothes}
         outfits={outfits}
         currentOutfit={selectedDayItinerary?.outfit}
-        currentItinerary={selectedDayItinerary}
-        dayInfo={selectedDayIndex !== null ? plannerDays[selectedDayIndex] : null}
+        dayInfo={outfitEditingData.dayIndex !== null ? plannerDays[outfitEditingData.dayIndex] : null}
         loading={loading}
+        mode={outfitEditingData.mode}
+        initialMoment={outfitEditingData.moment || ''}
       />
+      </div>
+    </main>
     </div>
   );
 };

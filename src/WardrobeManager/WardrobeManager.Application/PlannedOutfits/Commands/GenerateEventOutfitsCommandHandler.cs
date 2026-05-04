@@ -47,6 +47,13 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
             throw new Exception("Invalid date range. Must be between 1 and 30 days.");
         }
 
+        // Validate minimum clothing items
+        var userClothes = await _clothingRepository.GetByUserIdAsync(request.UserId, ct);
+        if (userClothes.Count < 5)
+        {
+            throw new Exception("You need at least 5 items in your wardrobe to generate a trip itinerary.");
+        }
+
         var generatedDays = new List<GeneratedDayDto>();
         var location = plannerEvent.Location;
         var usedStartItemIds = new HashSet<Guid>();
@@ -69,7 +76,9 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
                 ? new WeatherData(dayForecast.Temperature, dayForecast.Condition, dayForecast.SeasonSuggestion)
                 : null;
 
-            var (style, moment) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, i, weather);
+            // If there's an existing itinerary for this day, grab its moment so we don't overwrite user's intent
+            var existingItinerary = plannerEvent.Itineraries.FirstOrDefault(i => i.Date.Date == currentDate.Date);
+            var (style, moment) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, i, weather, existingItinerary?.Moment, plannerEvent.PreferredStyles);
 
             // Generate outfit
             var outfitResult = await GenerateOutfitForDay(request.UserId, style, weather, usedStartItemIds, ct);

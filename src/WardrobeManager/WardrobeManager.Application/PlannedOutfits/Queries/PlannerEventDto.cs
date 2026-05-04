@@ -22,4 +22,5 @@ public class PlannerEventDto
     public string Status { get; set; } = string.Empty;
     public DateTime? ArchivedAt { get; set; }
     public List<EventItineraryDto> Itineraries { get; set; } = new();
+    public List<string> PreferredStyles { get; set; } = new();
 }

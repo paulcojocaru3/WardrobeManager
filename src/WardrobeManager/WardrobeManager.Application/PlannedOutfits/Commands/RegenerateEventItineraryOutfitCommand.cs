@@ -67,7 +67,7 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
             // fallback to null weather
         }
 
-        var (style, _) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, dayIndex, weather);
+        var (style, _) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, dayIndex, weather, itinerary.Moment, plannerEvent.PreferredStyles);
 
         var excludedItemIds = itinerary.Outfit?.Items.Select(i => i.Id).ToList() ?? new List<Guid>();
         var startItem = await _eventOutfitPlanningService.SelectStartItemAsync(request.UserId, style, weather, excludedItemIds, ct);

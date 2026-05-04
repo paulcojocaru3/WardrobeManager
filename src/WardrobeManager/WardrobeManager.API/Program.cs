@@ -19,6 +19,7 @@ builder.Services.AddControllers()
     });
 builder.Services.AddOpenApi();
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
 
 // CORS Configuration
 builder.Services.AddCors(options =>
