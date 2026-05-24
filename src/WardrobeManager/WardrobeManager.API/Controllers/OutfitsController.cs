@@ -70,6 +70,13 @@ public class OutfitsController(IMediator mediator) : ControllerBase
         return Ok();
     }
 
+    [HttpPut("{id}/favorite")]
+    public async Task<IActionResult> ToggleFavorite(Guid id)
+    {
+        var result = await mediator.Send(new ToggleOutfitFavoriteCommand(id));
+        return Ok(new { isFavorite = result });
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteOutfit(Guid id)
     {

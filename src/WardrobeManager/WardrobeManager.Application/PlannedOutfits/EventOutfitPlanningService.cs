@@ -5,6 +5,9 @@ namespace WardrobeManager.Application.PlannedOutfits;
 
 public class EventOutfitPlanningService(IClothingRepository clothingRepository) : IEventOutfitPlanningService
 {
+    // Alert threshold for temperature change (°C) between stored forecast and current weather.
+    private const float WeatherTemperatureAlertDeltaCelsius = 5f;
+
     public (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather, string? existingMoment = null, List<string>? preferredStyles = null)
     {
         // If the user already provided a moment (e.g. they typed "Dinner", "Gym", "Flight"),
@@ -137,6 +140,29 @@ public class EventOutfitPlanningService(IClothingRepository clothingRepository) 
         if (temp < 10) return "Indoor";
 
         return "Day";
+    }
+
+    public static (bool IsSignificantChange, float TemperatureDelta) CompareForecastToCurrentWeather(
+        WeatherData? storedForecast,
+        WeatherData? currentWeather)
+    {
+        if (!HasValidTemperature(storedForecast) || !HasValidTemperature(currentWeather))
+        {
+            return (false, 0f);
+        }
+
+        var temperatureDelta = MathF.Abs(currentWeather!.Temperature - storedForecast!.Temperature);
+        var isSignificant = temperatureDelta >= WeatherTemperatureAlertDeltaCelsius;
+
+        return (isSignificant, temperatureDelta);
+    }
+
+    private static bool HasValidTemperature(WeatherData? weather)
+    {
+        if (weather == null) return false;
+
+        var temp = weather.Temperature;
+        return !float.IsNaN(temp) && !float.IsInfinity(temp);
     }
 
     private static ClothingItem PickRandom(List<ClothingItem> items)

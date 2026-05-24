@@ -9,11 +9,13 @@ public class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateEventIti
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IOutfitRepository _outfitRepository;
+    private readonly IWeatherService _weatherService;
 
-    public UpdateEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository)
+    public UpdateEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository, IWeatherService weatherService)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
+        _weatherService = weatherService;
     }
 
     public async Task<bool> Handle(UpdateEventItineraryCommand request, CancellationToken cancellationToken)
@@ -36,9 +38,29 @@ public class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateEventIti
             return false;
         }
 
+        float? storedTemp = itinerary.StoredTemperature;
+        if (itinerary.Date.Date != request.Date.Date)
+        {
+            try
+            {
+                var totalDays = (int)(plannerEvent.EndDate.Date - plannerEvent.StartDate.Date).TotalDays + 1;
+                var forecast = await _weatherService.GetForecastAsync(plannerEvent.Location, totalDays, plannerEvent.StartDate.Date, cancellationToken);
+                var dayForecast = forecast.FirstOrDefault(f => f.Date.Date == request.Date.Date);
+                if (dayForecast != null)
+                {
+                    storedTemp = dayForecast.Temperature;
+                }
+            }
+            catch
+            {
+                // Ignore weather fetch errors
+            }
+        }
+
         itinerary.OutfitId = request.OutfitId;
         itinerary.Date = request.Date.Date;
         itinerary.Moment = request.Moment;
+        itinerary.StoredTemperature = storedTemp;
 
         await _plannerEventRepository.UpdateItineraryAsync(itinerary, cancellationToken);
         return true;

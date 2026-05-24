@@ -10,11 +10,13 @@ public class AddEventItineraryCommandHandler : IRequestHandler<AddEventItinerary
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IOutfitRepository _outfitRepository;
+    private readonly IWeatherService _weatherService;
 
-    public AddEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository)
+    public AddEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository, IWeatherService weatherService)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
+        _weatherService = weatherService;
     }
 
     public async Task<Guid> Handle(AddEventItineraryCommand request, CancellationToken cancellationToken)
@@ -31,12 +33,29 @@ public class AddEventItineraryCommandHandler : IRequestHandler<AddEventItinerary
             throw new Exception("Outfit not found or does not belong to user.");
         }
 
+        float? storedTemp = null;
+        try
+        {
+            var totalDays = (int)(plannerEvent.EndDate.Date - plannerEvent.StartDate.Date).TotalDays + 1;
+            var forecast = await _weatherService.GetForecastAsync(plannerEvent.Location, totalDays, plannerEvent.StartDate.Date, cancellationToken);
+            var dayForecast = forecast.FirstOrDefault(f => f.Date.Date == request.Date.Date);
+            if (dayForecast != null)
+            {
+                storedTemp = dayForecast.Temperature;
+            }
+        }
+        catch
+        {
+            // Ignore weather fetch errors
+        }
+
         var itinerary = new EventItinerary
         {
             PlannerEventId = request.PlannerEventId,
             OutfitId = request.OutfitId,
             Date = request.Date.Date,
-            Moment = request.Moment
+            Moment = request.Moment,
+            StoredTemperature = storedTemp
         };
 
         await _plannerEventRepository.AddItineraryAsync(itinerary, cancellationToken);

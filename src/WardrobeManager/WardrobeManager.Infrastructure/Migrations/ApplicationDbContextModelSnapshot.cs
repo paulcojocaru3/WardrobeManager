@@ -89,6 +89,11 @@ namespace WardrobeManager.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Embedding");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
+
                     b.HasIndex("UserId");
 
                     b.ToTable("ClothingItems");
@@ -116,6 +121,9 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Property<Guid>("PlannerEventId")
                         .HasColumnType("uuid");
 
+                    b.Property<float?>("StoredTemperature")
+                        .HasColumnType("real");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OutfitId");
@@ -135,6 +143,9 @@ namespace WardrobeManager.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsAiGenerated")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsEventExclusive")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Name")
@@ -173,6 +184,10 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.PrimitiveCollection<List<string>>("PreferredStyles")
+                        .IsRequired()
+                        .HasColumnType("text[]");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp with time zone");

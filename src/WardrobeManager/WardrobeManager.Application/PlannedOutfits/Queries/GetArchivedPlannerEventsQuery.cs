@@ -62,10 +62,13 @@ public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedP
                 OutfitId = i.OutfitId,
                 Date = i.Date,
                 Moment = i.Moment,
+                StoredTemperature = i.StoredTemperature,
                 Outfit = new OutfitDto(
-                    i.Outfit!.Id,
+                    i.Outfit.Id,
                     i.Outfit.Name,
                     i.Outfit.IsAiGenerated,
+                    i.Outfit.IsFavorite,
+                    i.Outfit.Tags,
                     i.Outfit.CreatedAt,
                     i.Outfit.Items.Select(item => new ClothingItemDto(
                         item.Id,

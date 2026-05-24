@@ -7,6 +7,8 @@ public class Outfit
     public string Name { get; set; } = string.Empty;
     public bool IsAiGenerated { get; set; }
     public bool IsEventExclusive { get; set; }
+    public bool IsFavorite { get; set; }
+    public List<string> Tags { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation properties

@@ -30,5 +30,5 @@ export const COLORS = [
   'golden', 'yellow', 'mustard', 'lemon', 'amber', 'gold',
   'orange', 'tangerine', 'peach', 'apricot', 'burnt orange',
   'brown', 'chocolate', 'tan', 'camel', 'caramel', 'coffee', 'bronze', 'copper',
-  'denim blue', 'washed blue', 'indigo', 'violet', 'wine red', 'sand', 'taupe'
+  'denim blue', 'washed blue', 'indigo', 'wine red', 'sand', 'taupe'
 ];

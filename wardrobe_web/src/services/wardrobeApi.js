@@ -14,6 +14,7 @@ export const outfitsApi = {
   generateAi: (payload) => apiClient.post('/outfits/generate-ai', payload),
   create: (payload) => apiClient.post('/outfits', payload),
   update: (id, payload) => apiClient.put(`/outfits/${id}`, payload),
+  toggleFavorite: (id) => apiClient.put(`/outfits/${id}/favorite`),
   remove: (id) => apiClient.delete(`/outfits/${id}`),
   recordWear: (outfitId, payload) => apiClient.post(`/wear-events/outfit/${outfitId}`, payload),
 };
@@ -30,6 +31,8 @@ export const statsApi = {
   getWearStats: (userId, params) => apiClient.get(`/wear-events/stats/${userId}`, { params }),
 };
 
+const extractGenerateOutfitsWeatherAlert = (response) => response?.data?.weatherAlert ?? null;
+
 export const plannerEventsApi = {
   getByUser: (userId) => apiClient.get(`/planner-events/${userId}`),
   getArchivedByUser: (userId) => apiClient.get(`/planner-events/${userId}/archived`),
@@ -42,6 +45,8 @@ export const plannerEventsApi = {
   removeItinerary: (userId, plannerEventId, itineraryId) => apiClient.delete(`/planner-events/${userId}/${plannerEventId}/itineraries/${itineraryId}`),
   generateOutfits: (plannerEventId, payload) => apiClient.post(`/planner-events/${plannerEventId}/generate-outfits`, payload),
   regenerateItinerary: (plannerEventId, itineraryId, payload) => apiClient.post(`/planner-events/${plannerEventId}/itineraries/${itineraryId}/regenerate`, payload),
+  getTestAlert: (userId) => apiClient.get(`/planner-events/${userId}/test-alert`),
+  extractGenerateOutfitsWeatherAlert,
 };
 
 export const geoApi = {

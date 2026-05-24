@@ -1,6 +1,7 @@
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Outfits.Queries;
+using WardrobeManager.Application.PlannedOutfits;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
@@ -66,6 +67,10 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
         }
         catch { }
 
+        // We no longer need to build a weather alert here because we just generated the outfits
+        // based on the latest forecast. The drift will be checked on subsequent loads.
+        WeatherAlertDto? weatherAlert = null;
+
         for (int i = 0; i < totalDays; i++)
         {
             var currentDate = startDate.AddDays(i);
@@ -107,7 +112,8 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
                     PlannerEventId = plannerEvent.Id,
                     OutfitId = outfit.Id,
                     Date = currentDate,
-                    Moment = moment
+                    Moment = moment,
+                    StoredTemperature = weather?.Temperature
                 };
 
                 await _plannerEventRepository.AddItineraryAsync(itinerary, ct);
@@ -124,7 +130,17 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
             }
         }
 
-        return new GenerateEventOutfitsResult(totalDays, generatedDays.Count, generatedDays);
+        return new GenerateEventOutfitsResult(totalDays, generatedDays.Count, generatedDays, weatherAlert);
+    }
+
+    private static WeatherDataDto? MapWeatherData(WeatherData? weather, DateTime? date)
+    {
+        if (weather == null)
+        {
+            return null;
+        }
+
+        return new WeatherDataDto(weather.Temperature, weather.Condition, weather.SeasonSuggestion, date);
     }
 
     private async Task<Application.Outfits.Queries.AiGeneratedOutfitDto?> GenerateOutfitForDay(
