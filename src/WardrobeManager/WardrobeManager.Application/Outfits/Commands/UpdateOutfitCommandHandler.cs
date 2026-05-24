@@ -21,6 +21,10 @@ public class UpdateOutfitCommandHandler(
         }
 
         outfit.Name = request.Name;
+        if (request.Tags != null)
+        {
+            outfit.Tags = request.Tags;
+        }
 
         var newItems = new List<ClothingItem>();
         foreach (var itemId in request.ItemIds)

@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using WardrobeManager.Application.PlannedOutfits.Commands;
 using WardrobeManager.Application.PlannedOutfits.Queries;
@@ -16,8 +17,16 @@ public class PlannerEventsController : ControllerBase
         _mediator = mediator;
     }
 
+    [HttpGet("{userId}/test-alert")]
+    public async Task<ActionResult<WeatherAlertDto?>> GetTestAlert(Guid userId)
+    {
+        var query = new GetTestAlertQuery(userId);
+        var result = await _mediator.Send(query);
+        return Ok(result);
+    }
+
     [HttpGet("{userId}")]
-    public async Task<ActionResult<IEnumerable<PlannerEventDto>>> GetPlannerEvents(Guid userId)
+    public async Task<ActionResult<GetPlannerEventsResult>> GetPlannerEvents(Guid userId)
     {
         var query = new GetPlannerEventsQuery(userId);
         var result = await _mediator.Send(query);
@@ -113,6 +122,7 @@ public class PlannerEventsController : ControllerBase
     public record GenerateEventOutfitsRequest(Guid UserId);
 
     [HttpPost("{plannerEventId}/generate-outfits")]
+    [ProducesResponseType(typeof(GenerateEventOutfitsResult), StatusCodes.Status200OK)]
     public async Task<ActionResult<GenerateEventOutfitsResult>> GenerateEventOutfits(Guid plannerEventId, [FromBody] GenerateEventOutfitsRequest request)
     {
         var command = new GenerateEventOutfitsCommand(request.UserId, plannerEventId);

@@ -50,6 +50,8 @@ public class GenerateOutfitCommandHandler(
             outfit.Id,
             outfit.Name,
             outfit.IsAiGenerated,
+            outfit.IsFavorite,
+            outfit.Tags,
             outfit.CreatedAt,
             outfit.Items.Select(i => new ClothingItemDto(
                 i.Id, i.Name, i.Type, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl ?? string.Empty, i.CreatedAt

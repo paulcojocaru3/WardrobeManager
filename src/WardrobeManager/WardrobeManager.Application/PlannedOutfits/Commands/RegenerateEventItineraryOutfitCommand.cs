@@ -105,6 +105,7 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
         await _outfitRepository.AddAsync(newOutfit, ct);
 
         itinerary.OutfitId = newOutfit.Id;
+        itinerary.StoredTemperature = weather?.Temperature;
         await _plannerEventRepository.UpdateItineraryAsync(itinerary, ct);
 
         return true;

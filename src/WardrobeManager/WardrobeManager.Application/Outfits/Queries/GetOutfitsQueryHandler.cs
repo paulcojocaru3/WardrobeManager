@@ -17,6 +17,8 @@ public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidat
             o.Id,
             o.Name,
             o.IsAiGenerated,
+            o.IsFavorite,
+            o.Tags,
             o.CreatedAt,
             o.Items.Select(i => new ClothingItemDto(
                 i.Id, i.Name, i.Type, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl!, i.CreatedAt

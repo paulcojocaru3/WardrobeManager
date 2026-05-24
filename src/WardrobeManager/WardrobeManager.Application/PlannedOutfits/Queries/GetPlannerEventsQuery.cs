@@ -2,21 +2,26 @@ using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Clothing.Queries;
 using WardrobeManager.Application.Outfits.Queries;
+using WardrobeManager.Application.PlannedOutfits.Commands;
 
 namespace WardrobeManager.Application.PlannedOutfits.Queries;
 
-public record GetPlannerEventsQuery(Guid UserId) : IRequest<IEnumerable<PlannerEventDto>>;
+public record GetPlannerEventsResult(IEnumerable<PlannerEventDto> PlannerEvents, WeatherAlertDto? WeatherAlert);
 
-public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuery, IEnumerable<PlannerEventDto>>
+public record GetPlannerEventsQuery(Guid UserId) : IRequest<GetPlannerEventsResult>;
+
+public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuery, GetPlannerEventsResult>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
+    private readonly IWeatherService _weatherService;
 
-    public GetPlannerEventsQueryHandler(IPlannerEventRepository plannerEventRepository)
+    public GetPlannerEventsQueryHandler(IPlannerEventRepository plannerEventRepository, IWeatherService weatherService)
     {
         _plannerEventRepository = plannerEventRepository;
+        _weatherService = weatherService;
     }
 
-    public async Task<IEnumerable<PlannerEventDto>> Handle(GetPlannerEventsQuery request, CancellationToken cancellationToken)
+    public async Task<GetPlannerEventsResult> Handle(GetPlannerEventsQuery request, CancellationToken cancellationToken)
     {
         var plannerEvents = (await _plannerEventRepository.GetByUserIdAsync(request.UserId, cancellationToken)).ToList();
 
@@ -43,9 +48,9 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
         }
 
         // Filter to return only active events
-        var activeEvents = plannerEvents.Where(p => p.Status == "Active");
+        var activeEvents = plannerEvents.Where(p => p.Status == "Active").ToList();
 
-        return activeEvents.Select(p => new PlannerEventDto
+        var dtos = activeEvents.Select(p => new PlannerEventDto
         {
             Id = p.Id,
             Name = p.Name,
@@ -62,10 +67,13 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
                 OutfitId = i.OutfitId,
                 Date = i.Date,
                 Moment = i.Moment,
+                StoredTemperature = i.StoredTemperature,
                 Outfit = new OutfitDto(
-                    i.Outfit!.Id,
+                    i.Outfit.Id,
                     i.Outfit.Name,
                     i.Outfit.IsAiGenerated,
+                    i.Outfit.IsFavorite,
+                    i.Outfit.Tags,
                     i.Outfit.CreatedAt,
                     i.Outfit.Items.Select(item => new ClothingItemDto(
                         item.Id,
@@ -80,6 +88,53 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
                     )).ToList()
                 )
             }).ToList()
-        });
+        }).ToList();
+
+        // Check for weather drift
+        WeatherAlertDto? weatherAlert = null;
+        
+        // Find the first active event that has upcoming days with stored temperatures
+        var upcomingEvent = activeEvents
+            .Where(e => e.EndDate.Date >= now.Date && e.Itineraries.Any(i => i.Date.Date >= now.Date && i.StoredTemperature.HasValue))
+            .OrderBy(e => e.StartDate)
+            .FirstOrDefault();
+
+        if (upcomingEvent != null)
+        {
+            var totalDays = (int)(upcomingEvent.EndDate.Date - upcomingEvent.StartDate.Date).TotalDays + 1;
+            try
+            {
+                var forecast = await _weatherService.GetForecastAsync(upcomingEvent.Location, totalDays, upcomingEvent.StartDate.Date, cancellationToken);
+                
+                foreach (var itinerary in upcomingEvent.Itineraries.Where(i => i.Date.Date >= now.Date && i.StoredTemperature.HasValue))
+                {
+                    var dayForecast = forecast.FirstOrDefault(f => f.Date.Date == itinerary.Date.Date);
+                    if (dayForecast != null)
+                    {
+                        var tempDelta = Math.Abs(dayForecast.Temperature - itinerary.StoredTemperature!.Value);
+                        if (tempDelta >= 5f) // 5 degrees drift
+                        {
+                            weatherAlert = new WeatherAlertDto(
+                                IsAvailable: true,
+                                IsSignificantChange: true,
+                                TemperatureDelta: dayForecast.Temperature - itinerary.StoredTemperature.Value,
+                                StoredForecast: new WeatherDataDto(itinerary.StoredTemperature.Value, "Unknown", "Unknown", itinerary.Date),
+                                CurrentWeather: new WeatherDataDto(dayForecast.Temperature, dayForecast.Condition, dayForecast.SeasonSuggestion, itinerary.Date),
+                                EventName: upcomingEvent.Name,
+                                EventDate: itinerary.Date,
+                                PlannerEventId: upcomingEvent.Id
+                            );
+                            break; // Only one alert per event (Variant A)
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore weather fetch errors
+            }
+        }
+
+        return new GetPlannerEventsResult(dtos, weatherAlert);
     }
 }

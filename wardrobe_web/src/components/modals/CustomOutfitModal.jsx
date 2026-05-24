@@ -23,6 +23,41 @@ const CustomOutfitModal = ({
           value={customOutfitData.name} 
           onChange={e => setCustomOutfitData({...customOutfitData, name: e.target.value})} 
         />
+
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--fg-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Tags</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {['work', 'comfy', 'going-out', 'casual', 'formal', 'gym'].map(tag => {
+              const isSelected = (customOutfitData.tags || []).includes(tag);
+              return (
+                <button
+                  key={tag}
+                  onClick={() => {
+                    const currentTags = customOutfitData.tags || [];
+                    if (isSelected) {
+                      setCustomOutfitData({ ...customOutfitData, tags: currentTags.filter(t => t !== tag) });
+                    } else {
+                      setCustomOutfitData({ ...customOutfitData, tags: [...currentTags, tag] });
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '16px',
+                    border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                    background: isSelected ? 'var(--accent)' : 'var(--bg-raised)',
+                    color: isSelected ? 'var(--accent-fg)' : 'var(--fg)',
+                    fontSize: '0.7rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {isSelected ? `✓ ${tag}` : `+ ${tag}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         
         <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px' }}>
           {CLOTHING_TYPES.map((type, idx) => (

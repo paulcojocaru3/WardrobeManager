@@ -18,6 +18,7 @@ import ValidationModal from '../components/modals/ValidationModal';
 import CitySelectionModal from '../components/modals/CitySelectionModal';
 import OutfitEditingModal from '../components/OutfitEditingModal';
 import StatsSection from '../components/StatsSection';
+import WeatherAlertNotice from '../components/WeatherAlertNotice';
 import WeatherBar from '../components/WeatherBar';
 import { clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
 import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
@@ -62,6 +63,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [genericForecast, setGenericForecast] = useState([]);
   const [clothes, setClothes] = useState([]);
   const [outfits, setOutfits] = useState([]);
+  const [outfitFilter, setOutfitFilter] = useState('all'); // 'all', 'favorites'
   const [plannerEvents, setPlannerEvents] = useState([]);
   const [usageRate, setUsageRate] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -72,10 +74,11 @@ const DashboardPage = ({ user, onLogout }) => {
   const [editItemData, setEditItemData] = useState(null);
   
   const [uploadModal, setUploadModal] = useState(false);
-  const [uploadData, setUploadData] = useState({ file: null, name: '' });
+  const [uploadData, setUploadData] = useState([]);
   
   const [validationModal, setValidationModal] = useState(false);
   const [validationData, setValidationData] = useState(null);
+  const [validationQueue, setValidationQueue] = useState([]);
   const [originalPredictions, setOriginalPredictions] = useState(null);
   const [currentStep, setCurrentStep] = useState(0); 
   const [validationSearchTerm, setValidationSearchTerm] = useState('');
@@ -90,6 +93,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [cityModal, setCityModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [weatherInfo, setWeatherInfo] = useState(null);
+  const [weatherAlert, setWeatherAlert] = useState(null);
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [styleSelectionModal, setStyleSelectionModal] = useState(false);
   const [generationContext, setGenerationContext] = useState(null);
@@ -233,7 +237,7 @@ const [editItineraryData, setEditItineraryData] = useState({
   
   // Custom Outfit State
   const [customOutfitModal, setCustomOutfitModal] = useState(false);
-  const [customOutfitData, setCustomOutfitData] = useState({ name: '', itemIds: [] });
+  const [customOutfitData, setCustomOutfitData] = useState({ name: '', itemIds: [], tags: [] });
   const [customOutfitTab, setCustomOutfitTab] = useState(0); 
 
   // Event creation wizard state
@@ -474,18 +478,22 @@ const [editItineraryData, setEditItineraryData] = useState({
     }
   }, [userId]);
 
-  const fetchPlannerEvents = useCallback(async () => {
-    if (!userId) {
-      return;
-    }
+   const fetchPlannerEvents = useCallback(async () => {
+     if (!userId) {
+       return;
+     }
 
-    try {
-      const res = await plannerEventsApi.getByUser(userId);
-      setPlannerEvents(Array.isArray(res.data) ? res.data : []);
-    } catch (e) {
-      console.error('Planner events error:', e);
-    }
-  }, [userId]);
+     try {
+       const res = await plannerEventsApi.getByUser(userId);
+       const payload = res.data || {};
+       const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
+       const nextWeatherAlert = payload.weatherAlert;
+       setPlannerEvents(Array.isArray(events) ? events : []);
+       setWeatherAlert(nextWeatherAlert ?? null);
+     } catch (e) {
+       console.error('Planner events error:', e);
+     }
+   }, [userId]);
 
   const fetchArchivedPlannerEvents = useCallback(async () => {
     if (!userId) {
@@ -566,6 +574,20 @@ return () => clearTimeout(timeoutId);
     return () => clearTimeout(timeoutId);
   }, [eventLocationSearch]);
 
+  const handleTestAlert = async () => {
+    if (!userId) return;
+    try {
+      const res = await plannerEventsApi.getTestAlert(userId);
+      if (res.data) {
+        setWeatherAlert(res.data);
+      } else {
+        alert('No active events found to generate a test alert.');
+      }
+    } catch (err) {
+      handleApiAlert(err, 'Failed to fetch test alert.');
+    }
+  };
+
   const onGenerate = (item = null) => {
     if (item) setSelectedItem(item);
     setGenerationContext(item ? 'item' : 'today');
@@ -603,33 +625,55 @@ return () => clearTimeout(timeoutId);
     finally { setLoading(false); setSelectedItem(null); }
   };
 
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files);
+      const initialUploadData = filesArray.map(file => ({
+        file,
+        name: file.name.split('.')[0]
+      }));
+      setUploadData(initialUploadData);
+      setUploadModal(true);
+    }
+    e.target.value = null;
+  };
+
   const onUpload = async () => {
     setLoading(true);
-    const fd = new FormData();
-    fd.append('File', uploadData.file);
-    fd.append('UserId', userId);
-    fd.append('Name', uploadData.name);
     try {
-      const res = await clothingApi.process(fd);
-      const data = res.data;
+      const results = [];
+      for (const item of uploadData) {
+        const fd = new FormData();
+        fd.append('File', item.file);
+        fd.append('UserId', userId);
+        fd.append('Name', item.name);
+        
+        const res = await clothingApi.process(fd);
+        results.push(res.data);
+      }
       
-      setOriginalPredictions({
-        type: data.type,
-        color: data.color,
-        gender: data.gender,
-        season: data.season,
-        usage: data.usage
-      });
+      if (results.length > 0) {
+        setValidationQueue(results);
+        
+        const firstItem = results[0];
+        setOriginalPredictions({
+          type: firstItem.type,
+          color: firstItem.color,
+          gender: firstItem.gender,
+          season: firstItem.season,
+          usage: firstItem.usage
+        });
 
-      setValidationData({
-        ...data,
-        season: data.season ? [data.season] : [],
-        usage: data.usage ? [data.usage] : []
-      });
+        setValidationData({
+          ...firstItem,
+          season: firstItem.season ? [firstItem.season] : [],
+          usage: firstItem.usage ? [firstItem.usage] : []
+        });
 
-      setCurrentStep(0);
-      setUploadModal(false);
-      setValidationModal(true);
+        setCurrentStep(0);
+        setUploadModal(false);
+        setValidationModal(true);
+      }
     } catch (err) {
       handleApiAlert(err, 'Processing failed');
     }
@@ -666,8 +710,29 @@ return () => clearTimeout(timeoutId);
       }
 
       await clothingApi.add(payload);
-      setValidationModal(false);
-      fetchClothes();
+      
+      const newQueue = validationQueue.slice(1);
+      setValidationQueue(newQueue);
+      
+      if (newQueue.length > 0) {
+        const nextItem = newQueue[0];
+        setValidationData({
+          ...nextItem,
+          season: nextItem.season ? [nextItem.season] : [],
+          usage: nextItem.usage ? [nextItem.usage] : []
+        });
+        setOriginalPredictions({
+          type: nextItem.type,
+          color: nextItem.color,
+          gender: nextItem.gender,
+          season: nextItem.season,
+          usage: nextItem.usage
+        });
+        setCurrentStep(0);
+      } else {
+        setValidationModal(false);
+        fetchClothes();
+      }
     } catch (err) {
       handleApiAlert(err, 'Save failed');
     }
@@ -830,6 +895,18 @@ return () => clearTimeout(timeoutId);
     }
   };
 
+  const onToggleFavorite = async (outfit) => {
+    try {
+      // Optimistic update
+      setOutfits(prev => prev.map(o => o.id === outfit.id ? { ...o, isFavorite: !o.isFavorite } : o));
+      await outfitsApi.toggleFavorite(outfit.id);
+    } catch (err) {
+      // Revert on fail
+      setOutfits(prev => prev.map(o => o.id === outfit.id ? { ...o, isFavorite: outfit.isFavorite } : o));
+      handleApiAlert(err, 'Failed to toggle favorite');
+    }
+  };
+
   const onSaveCustomOutfit = async () => {
     if (!customOutfitData.name || customOutfitData.itemIds.length === 0) {
       alert("Please provide a name and select at least one item.");
@@ -841,10 +918,11 @@ return () => clearTimeout(timeoutId);
         userId, 
         name: customOutfitData.name, 
         itemIds: customOutfitData.itemIds,
-        isAiGenerated: false 
+        tags: customOutfitData.tags || [],
+        isAiGenerated: false
       });
       setCustomOutfitModal(false);
-      setCustomOutfitData({ name: '', itemIds: [] });
+      setCustomOutfitData({ name: '', itemIds: [], tags: [] });
       fetchOutfits();
     } catch (err) {
       handleApiAlert(err, 'Save failed');
@@ -898,11 +976,17 @@ return () => clearTimeout(timeoutId);
       
       // Update selected event if it's the one being edited
       if (selectedPlannerEvent && selectedPlannerEvent.id === editEventData.id) {
-        const res = await plannerEventsApi.getByUser(userId);
-        const updatedEvent = res.data?.find(e => e.id === editEventData.id);
-        if (updatedEvent) {
-          setSelectedPlannerEvent(updatedEvent);
-        }
+       const res = await plannerEventsApi.getByUser(userId);
+       const payload = res.data || {};
+       const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
+       const nextWeatherAlert = payload.weatherAlert;
+       const updatedEvent = events?.find(e => e.id === editEventData.id);
+       if (nextWeatherAlert) {
+         setWeatherAlert(nextWeatherAlert);
+       }
+       if (updatedEvent) {
+         setSelectedPlannerEvent(updatedEvent);
+       }
       }
     } catch (err) {
       handleApiAlert(err, 'Update event failed');
@@ -1091,12 +1175,18 @@ const onSaveOutfitEdit = async (saveData) => {
       
       // Update local state
       if (selectedPlannerEvent && selectedPlannerEvent.id === outfitEditingData.plannerEventId) {
-        const res = await plannerEventsApi.getByUser(userId);
-        const updatedEvent = res.data?.find(e => e.id === outfitEditingData.plannerEventId);
-        if (updatedEvent) {
-          setSelectedPlannerEvent(updatedEvent);
-          setPlannerEvents(prev => prev.map(ev => ev.id === outfitEditingData.plannerEventId ? updatedEvent : ev));
-        }
+       const res = await plannerEventsApi.getByUser(userId);
+       const payload = res.data || {};
+       const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
+       const nextWeatherAlert = payload.weatherAlert;
+       const updatedEvent = events?.find(e => e.id === outfitEditingData.plannerEventId);
+       if (nextWeatherAlert) {
+         setWeatherAlert(nextWeatherAlert);
+       }
+       if (updatedEvent) {
+         setSelectedPlannerEvent(updatedEvent);
+         setPlannerEvents(prev => prev.map(ev => ev.id === outfitEditingData.plannerEventId ? updatedEvent : ev));
+       }
       }
       
       // Refresh outfits list
@@ -1113,9 +1203,14 @@ const onRegenerateItinerary = async (plannerEventId, itineraryId) => {
     try {
       await plannerEventsApi.regenerateItinerary(plannerEventId, itineraryId, { userId });
       // Fetch and update local state
-      const res = await plannerEventsApi.getByUser(userId);
-      const updatedEvents = Array.isArray(res.data) ? res.data : [];
-      setPlannerEvents(updatedEvents);
+       const res = await plannerEventsApi.getByUser(userId);
+       const payload = res.data || {};
+       const updatedEvents = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
+       const nextWeatherAlert = payload.weatherAlert;
+       if (nextWeatherAlert) {
+         setWeatherAlert(nextWeatherAlert);
+       }
+       setPlannerEvents(updatedEvents);
       
       // Update selected event if needed
       if (selectedPlannerEvent && selectedPlannerEvent.id === plannerEventId) {
@@ -1250,6 +1345,10 @@ const onUpdateItinerary = async () => {
     setGeneratingProgress({ status: 'Generating...', current: 0, total: 0 });
     try {
       const res = await plannerEventsApi.generateOutfits(plannerEventId, { userId });
+      const alertPayload = plannerEventsApi.extractGenerateOutfitsWeatherAlert(res);
+      if (alertPayload) {
+        setWeatherAlert(alertPayload);
+      }
       setGeneratingProgress({ 
         status: 'Done!', 
         current: res.data.outfitsCreated, 
@@ -1259,7 +1358,9 @@ const onUpdateItinerary = async () => {
       // Update local state immediately
       if (selectedPlannerEvent && selectedPlannerEvent.id === plannerEventId) {
         const res2 = await plannerEventsApi.getByUser(userId);
-        const updatedEvent = res2.data?.find(e => e.id === plannerEventId);
+        const payload2 = res2.data || {};
+        const events2 = Array.isArray(payload2.plannerEvents) ? payload2.plannerEvents : payload2;
+        const updatedEvent = events2?.find(e => e.id === plannerEventId);
         if (updatedEvent) {
           setSelectedPlannerEvent(updatedEvent);
           setPlannerEvents(prev => prev.map(ev => ev.id === plannerEventId ? updatedEvent : ev));
@@ -1325,6 +1426,14 @@ const onUpdateItinerary = async () => {
 
   return (
     <div className="desktop-wrapper">
+      <input 
+        type="file" 
+        multiple 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        style={{ display: 'none' }} 
+        accept="image/*"
+      />
       <aside className="side-nav">
         <div className="side-nav-top">
           <div className="brand-wrap">
@@ -1367,6 +1476,13 @@ const onUpdateItinerary = async () => {
           <button className="theme-toggle-btn" onClick={toggleTheme}>
             {isDarkMode ? 'light mode' : 'dark mode'}
           </button>
+          <button 
+            className="theme-toggle-btn" 
+            style={{ fontSize: '0.6rem', color: 'var(--fg-muted)', background: 'var(--bg-subtle)' }}
+            onClick={handleTestAlert}
+          >
+            Test Weather Alert
+          </button>
           <button className="logout-btn" onClick={onLogout}>logout</button>
         </div>
       </aside>
@@ -1376,6 +1492,34 @@ const onUpdateItinerary = async () => {
           <h2 className="soft-title">
             {view === 'dashboard' ? 'dashboard' : view === 'clothes' ? 'your wardrobe' : view === 'outfits' ? 'generated outfits' : view === 'planner' ? 'outfit planner' : 'wardrobe insights'}
           </h2>
+
+          {view === 'dashboard' && weatherAlert && (
+            <div style={{ marginBottom: '20px' }}>
+              <WeatherAlertNotice
+                alert={weatherAlert}
+                locationLabel={
+                  weatherAlert?.plannerEventId && plannerEvents.find(e => e.id === weatherAlert.plannerEventId)?.location
+                }
+                onGenerateAlternative={() => {
+                  if (weatherAlert?.plannerEventId) {
+                    const event = plannerEvents.find(e => e.id === weatherAlert.plannerEventId);
+                    if (event && weatherAlert.eventDate) {
+                      // Need to find the itinerary ID for this specific date
+                      const alertDate = new Date(weatherAlert.eventDate).toDateString();
+                      const itinerary = event.itineraries.find(i => new Date(i.date).toDateString() === alertDate);
+                      if (itinerary) {
+                        onRegenerateItinerary(event.id, itinerary.id);
+                        setWeatherAlert(null); // Dismiss alert after action
+                        return;
+                      }
+                    }
+                    onGenerateEventOutfits(weatherAlert.plannerEventId);
+                  }
+                }}
+                onDismiss={() => setWeatherAlert(null)}
+              />
+            </div>
+          )}
 
           {view === 'dashboard' ? (
             <div className="dashboard-layout dashboard-layout-v2">
@@ -1569,39 +1713,77 @@ const onUpdateItinerary = async () => {
               })}
             </div>
           ) : view === 'outfits' ? (
-            <div className="outfits-list">
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '30px' }}>
+            <div className="outfits-view-container">
+              <div className="outfits-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div className="outfits-filters" style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    className={`nav-btn ${outfitFilter === 'all' ? 'active' : ''}`} 
+                    onClick={() => setOutfitFilter('all')}
+                  >
+                    All Outfits
+                  </button>
+                  <button 
+                    className={`nav-btn ${outfitFilter === 'favorites' ? 'active' : ''}`} 
+                    onClick={() => setOutfitFilter('favorites')}
+                  >
+                    Favorites
+                  </button>
+                </div>
                 <button 
                   className="gen-btn"
                   onClick={() => setCustomOutfitModal(true)}
-                  style={{ padding: '12px 30px', fontSize: '0.8rem', background: 'var(--card-bg)', color: 'var(--fg)', border: '2px solid var(--accent)', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                  style={{ padding: '10px 24px', fontSize: '0.85rem', background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(var(--accent-rgb), 0.3)' }}
                 >
-                  + CREATE CUSTOM OUTFIT
+                  + CREATE OUTFIT
                 </button>
               </div>
-              {outfits.map(o => (
-                <div key={o.id} className="outfit-row">
-                  <div className="outfit-info">
-                    <div className="outfit-header-left">
-                      <span className="outfit-name">{o.name}</span>
-                      <button className="edit-mini-btn" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [] }); setEditModal(true); }}>edit items</button>
+              <div className="outfits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+              {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).map(o => (
+                <div key={o.id} className="outfit-card" style={{ background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
+                  <div className="outfit-card-header" style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', color: 'var(--fg)' }}>{o.name}</h3>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>{new Date(o.createdAt).toLocaleDateString()} {o.isAiGenerated && '• AI Generated'}</span>
+                      {o.tags && o.tags.length > 0 && (
+                        <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          {o.tags.map(tag => (
+                            <span key={tag} style={{ background: 'var(--bg-subtle)', color: 'var(--fg)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.6rem', border: '1px solid var(--border-subtle)' }}>
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="outfit-actions">
-                      <button onClick={() => { setPlanData({ outfitId: o.id, plannerEventId: '', selectedDayIndex: null, moment: '' }); setPlanModal(true); }} style={{ background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 'bold', cursor: 'pointer' }}>PLAN</button>
-                      <button onClick={() => onWearOutfit(o.id)} style={{ background: 'var(--accent-bg)', color: 'var(--accent-fg)', border: 'none', padding: '6px 12px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 'bold', cursor: 'pointer' }}>WEAR TODAY</button>
-                      <span className="outfit-date">{new Date(o.createdAt).toLocaleDateString()}</span>
-                      <Button label="remove" variant="danger" onClick={() => onDelete('outfit', o.id)} />
-                    </div>
+                    <button 
+                      onClick={() => onToggleFavorite(o)} 
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.2s', color: o.isFavorite ? 'var(--danger)' : 'var(--fg-muted)' }}
+                      title={o.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill={o.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinelinejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                      </svg>
+                    </button>
                   </div>
-                  <div className="outfit-items-preview">
+                  <div className="outfit-card-items" style={{ padding: '16px', display: 'flex', gap: '10px', overflowX: 'auto', flex: 1, alignItems: 'center', background: 'var(--bg)' }}>
                     {o.items && o.items.map(i => (
-                      <div key={i.id} className="mini-item clickable" onClick={() => setSelectedItem(i)}>
-                        <img src={i.processedImageUrl} alt="" title={i.name} />
+                      <div key={i.id} onClick={() => setSelectedItem(i)} style={{ flexShrink: 0, width: '70px', height: '70px', borderRadius: '12px', background: 'var(--bg-raised)', cursor: 'pointer', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+                        <img src={i.processedImageUrl} alt="" title={i.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       </div>
                     ))}
                   </div>
+                  <div className="outfit-card-actions" style={{ padding: '12px 16px', display: 'flex', gap: '8px', background: 'var(--card-bg)', borderTop: '1px solid var(--border-subtle)' }}>
+                    <button onClick={() => onWearOutfit(o.id)} style={{ flex: 1, background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', padding: '8px 0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>WEAR</button>
+                    <button onClick={() => { setPlanData({ outfitId: o.id, plannerEventId: '', selectedDayIndex: null, moment: '' }); setPlanModal(true); }} style={{ flex: 1, background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border)', padding: '8px 0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>PLAN</button>
+                    <button className="edit-mini-btn" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [] }); setEditModal(true); }} style={{ padding: '8px', background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Edit">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
+                    <button onClick={() => onDelete('outfit', o.id)} style={{ padding: '8px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid var(--danger-border, var(--danger))', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Delete">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
                 </div>
               ))}
+              </div>
             </div>
 ) : view === 'planner' ? (
             <div className="planner-layout">
@@ -1898,6 +2080,10 @@ const onUpdateItinerary = async () => {
                   </div>
                 </div>
               </div>
+
+              {/* Advanced Stats Section */}
+              <StatsSection userId={userId} />
+
             </div>
           )}
 
@@ -2077,3 +2263,4 @@ const onUpdateItinerary = async () => {
 };
 
 export default DashboardPage;
+
