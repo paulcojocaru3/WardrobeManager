@@ -6,44 +6,41 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(10px);
-  transition: all 0.4s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 16px;
+  animation: sw-fade .18s ease-out;
 }
+
+@keyframes sw-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .modal-content {
-  background: var(--card-bg);
-  padding: 50px;
-  border-radius: 40px;
-  /* Shadow mai "pro" și mai vizibil */
-  box-shadow: 0 30px 100px var(--shadow-color), 
-              0 10px 30px rgba(0, 0, 0, 0.02);
-  text-align: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--sw-radius-lg, 22px);
   position: relative;
   width: 90%;
-  /* Animație mai smooth */
-  animation: modalSmoothAppear 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  animation: sw-pop .22s cubic-bezier(.2,.7,.2,1);
+  box-shadow: 0 30px 80px rgba(0,0,0,.45);
 }
 
-@keyframes modalSmoothAppear {
-  from { 
-    opacity: 0; 
-    transform: translateY(30px) scale(0.98); 
-  }
-  to { 
-    opacity: 1; 
-    transform: translateY(0) scale(1); 
-  }
+@keyframes sw-pop {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: none; }
 }
 
-.modal-content.small { max-width: 420px; }
-.modal-content.medium { max-width: 650px; }
-.modal-content.large { max-width: 950px; }
+.modal-content.small  { max-width: 420px;  padding: 32px; }
+.modal-content.medium { max-width: 650px;  padding: 32px; }
+.modal-content.large  { max-width: 960px;  padding: 32px; }
 
 .modal-title {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  letter-spacing: 4px;
-  margin-bottom: 35px;
+  font-size: 0.72rem;
+  letter-spacing: 3px;
+  margin-bottom: 28px;
   color: var(--fg);
   font-weight: 500;
+  text-transform: uppercase;
 }

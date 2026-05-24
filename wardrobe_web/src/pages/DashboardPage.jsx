@@ -19,11 +19,10 @@ import CitySelectionModal from '../components/modals/CitySelectionModal';
 import OutfitEditingModal from '../components/OutfitEditingModal';
 import StatsSection from '../components/StatsSection';
 import WeatherAlertNotice from '../components/WeatherAlertNotice';
-import WeatherBar from '../components/WeatherBar';
 import { clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
 import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
 import { getErrorMessage } from '../utils/errors';
-import { toCsv, toStringArray, toTypeIndex } from '../utils/wardrobeTransforms';
+import { toCsv, toTypeIndex } from '../utils/wardrobeTransforms';
 import { useTheme } from '../contexts/ThemeContext';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -58,16 +57,33 @@ const getDayOffset = (eventStartDate, targetDate) => {
   return Math.max(0, Math.round((target - start) / DAY_IN_MS));
 };
 
+const IC = {
+  sparkles: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7Z"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9Z"/><path d="M5 16l.6 1.4L7 18l-1.4.6L5 20l-.6-1.4L3 18l1.4-.6Z"/></svg>,
+  hanger:   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 7a2 2 0 1 1 2-2"/><path d="M12 7v2.5L3 16h18l-9-6.5"/></svg>,
+  layers:   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 2 8l10 5 10-5z"/><path d="M2 13l10 5 10-5"/><path d="M2 18l10 5 10-5"/></svg>,
+  calendar: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>,
+  chart:    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>,
+  plus:     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>,
+  sun:      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>,
+  moon:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>,
+  logout:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+};
+
 const DashboardPage = ({ user, onLogout }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const [genericForecast, setGenericForecast] = useState([]);
   const [clothes, setClothes] = useState([]);
   const [outfits, setOutfits] = useState([]);
   const [outfitFilter, setOutfitFilter] = useState('all'); // 'all', 'favorites'
+  const [outfitView, setOutfitView] = useState('grid'); // 'grid', 'list'
+  const [wardrobeSearch, setWardrobeSearch] = useState('');
+  const [wardrobeTypeFilter, setWardrobeTypeFilter] = useState('ALL');
+  const [wardrobeTagFilter, setWardrobeTagFilter] = useState(null);
+  const [generatePrompt, setGeneratePrompt] = useState('');
   const [plannerEvents, setPlannerEvents] = useState([]);
   const [usageRate, setUsageRate] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState('dashboard');
+  const [view, setView] = useState('generate');
   const [previewDay, setPreviewDay] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [editItemMode, setEditItemMode] = useState(false);
@@ -84,7 +100,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [validationSearchTerm, setValidationSearchTerm] = useState('');
   
   const [editModal, setEditModal] = useState(false);
-  const [editData, setEditData] = useState({ id: null, name: '', itemIds: [] });
+  const [editData, setEditData] = useState({ id: null, name: '', itemIds: [], tags: [] });
 
   const [planModal, setPlanModal] = useState(false);
   const [planData, setPlanData] = useState({ outfitId: null, plannerEventId: '', selectedDayIndex: null, moment: '' });
@@ -203,15 +219,7 @@ const DashboardPage = ({ user, onLogout }) => {
     });
   }, [plannerEvents, eventForecasts, weatherInfo, genericForecast]);
 
-  const weekDaysWithEvents = useMemo(
-    () => upcomingWeekDays.filter((day) => day.totalEvents > 0),
-    [upcomingWeekDays]
-  );
 
-  const weekReadyDays = useMemo(
-    () => weekDaysWithEvents.filter((day) => day.status === 'planned').length,
-    [weekDaysWithEvents]
-  );
 
   const [editItineraryModal, setEditItineraryModal] = useState(false);
 const [editItineraryData, setEditItineraryData] = useState({
@@ -334,52 +342,43 @@ const [editItineraryData, setEditItineraryData] = useState({
     [clothes]
   );
 
-  const firstName = useMemo(() => userDisplayName.split(/\s+/).filter(Boolean)[0] || 'there', [userDisplayName]);
+  const wardrobeTags = useMemo(() => {
+    const tagSet = new Set();
+    clothes.forEach(item => {
+      if (item.usage) {
+        item.usage.split(',').forEach(t => {
+          const trimmed = t.trim();
+          if (trimmed) tagSet.add(trimmed);
+        });
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [clothes]);
 
-  const greetingLabel = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'good morning';
-    if (hour < 18) return 'good afternoon';
-    return 'good evening';
-  }, []);
+  const filteredClothes = useMemo(() => {
+    return clothes.filter(item => {
+      if (wardrobeTypeFilter !== 'ALL') {
+        const typeName = typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type;
+        if (typeName !== wardrobeTypeFilter) return false;
+      }
+      if (wardrobeSearch) {
+        const name = (item.name || '').toLowerCase();
+        if (!name.includes(wardrobeSearch.toLowerCase())) return false;
+      }
+      if (wardrobeTagFilter) {
+        const usageTags = (item.usage || '').split(',').map(t => t.trim());
+        if (!usageTags.includes(wardrobeTagFilter)) return false;
+      }
+      return true;
+    });
+  }, [clothes, wardrobeTypeFilter, wardrobeSearch, wardrobeTagFilter]);
+
 
   const todaysReadinessPercent = useMemo(() => {
     if (todaysEventSummary.totalEvents === 0) return 100;
     return Math.round((todaysEventSummary.plannedCount / todaysEventSummary.totalEvents) * 100);
   }, [todaysEventSummary]);
 
-  const quickActions = useMemo(() => ([
-    {
-      id: 'add-item',
-      label: 'Add item',
-      hint: 'Upload and classify a new piece',
-      disabled: false
-    },
-    {
-      id: 'create-outfit',
-      label: 'Create outfit',
-      hint: 'Build a custom look manually',
-      disabled: clothes.length === 0
-    },
-    {
-      id: 'plan-today',
-      label: 'Plan today',
-      hint: 'Assign outfits for current events',
-      disabled: todaysEventSummary.totalEvents === 0
-    },
-    {
-      id: 'generate-today',
-      label: 'Generate AI look',
-      hint: 'Auto-generate with weather context',
-      disabled: loading || clothes.length === 0
-    },
-    {
-      id: 'open-planner',
-      label: 'Open planner',
-      hint: 'Manage day-by-day event timelines',
-      disabled: false
-    }
-  ]), [clothes.length, loading, todaysEventSummary.totalEvents]);
 
   useEffect(() => {
     const detectLocation = async () => {
@@ -573,20 +572,6 @@ return () => clearTimeout(timeoutId);
 
     return () => clearTimeout(timeoutId);
   }, [eventLocationSearch]);
-
-  const handleTestAlert = async () => {
-    if (!userId) return;
-    try {
-      const res = await plannerEventsApi.getTestAlert(userId);
-      if (res.data) {
-        setWeatherAlert(res.data);
-      } else {
-        alert('No active events found to generate a test alert.');
-      }
-    } catch (err) {
-      handleApiAlert(err, 'Failed to fetch test alert.');
-    }
-  };
 
   const onGenerate = (item = null) => {
     if (item) setSelectedItem(item);
@@ -1401,181 +1386,131 @@ const onUpdateItinerary = async () => {
     setView('planner');
   }, [openPlannerForDate, upcomingWeekDays]);
 
-  const handleQuickAction = useCallback((action) => {
-    switch (action) {
-      case 'add-item':
-        fileInputRef.current?.click();
-        break;
-      case 'create-outfit':
-        setView('outfits');
-        setCustomOutfitModal(true);
-        break;
-      case 'plan-today':
-        openPlannerForToday();
-        break;
-      case 'generate-today':
-        onGenerate();
-        break;
-      case 'open-planner':
-        setView('planner');
-        break;
-      default:
-        break;
-    }
-  }, [onGenerate, openPlannerForToday]);
 
   return (
-    <div className="desktop-wrapper">
-      <input 
-        type="file" 
-        multiple 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        style={{ display: 'none' }} 
+    <div className="sw-app">
+      <input
+        type="file"
+        multiple
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
         accept="image/*"
       />
-      <aside className="side-nav">
-        <div className="side-nav-top">
-          <div className="brand-wrap">
-            <div className="brand">W.</div>
-            <span className="brand-label">WardrobeManager</span>
-          </div>
 
-          <div className="sidebar-user-chip">
-            <div className="sidebar-avatar">{userInitials}</div>
-            <div className="sidebar-user-meta">
-              <span>{userDisplayName}</span>
-              <small>{userEmail}</small>
-            </div>
-          </div>
-
-          <div className="nav-links">
-            <button className={`nav-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>
-              <span>dashboard</span>
-            </button>
-            <button className={`nav-btn ${view === 'clothes' ? 'active' : ''}`} onClick={() => setView('clothes')}>
-              <span>clothes</span>
-              <small>{clothes.length}</small>
-            </button>
-            <button className={`nav-btn ${view === 'outfits' ? 'active' : ''}`} onClick={() => setView('outfits')}>
-              <span>outfits</span>
-              <small>{outfits.length}</small>
-            </button>
-            <button className={`nav-btn ${view === 'planner' ? 'active' : ''}`} onClick={() => setView('planner')}>
-              <span>planner</span>
-              <small>{plannerEvents.length}</small>
-            </button>
-            <button className={`nav-btn ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>
-              <span>stats</span>
-              <small>{Math.round(usageRate)}%</small>
-            </button>
+      {/* ===== SIDEBAR ===== */}
+      <aside className="sw-side">
+        <div className="sw-brand">
+          <div className="mark">W</div>
+          <div>
+            <div className="name">SmartWardrobe</div>
+            <div className="sub">Closet · AI · Calendar</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <button className="theme-toggle-btn" onClick={toggleTheme}>
-            {isDarkMode ? 'light mode' : 'dark mode'}
+        <nav className="sw-nav">
+          <button className={`sw-nav-item is-cta${view === 'generate' ? ' is-active' : ''}`} onClick={() => setView('generate')}>
+            <span className="ic">{IC.sparkles}</span>
+            <span>Generate</span>
           </button>
-          <button 
-            className="theme-toggle-btn" 
-            style={{ fontSize: '0.6rem', color: 'var(--fg-muted)', background: 'var(--bg-subtle)' }}
-            onClick={handleTestAlert}
-          >
-            Test Weather Alert
+          <button className={`sw-nav-item${view === 'wardrobe' ? ' is-active' : ''}`} onClick={() => setView('wardrobe')}>
+            <span className="ic">{IC.hanger}</span>
+            <span>Wardrobe</span>
+            <span className="badge">{clothes.length}</span>
           </button>
-          <button className="logout-btn" onClick={onLogout}>logout</button>
+          <button className={`sw-nav-item${view === 'outfits' ? ' is-active' : ''}`} onClick={() => setView('outfits')}>
+            <span className="ic">{IC.layers}</span>
+            <span>Outfits</span>
+            <span className="badge">{outfits.length}</span>
+          </button>
+          <button className={`sw-nav-item${view === 'planner' ? ' is-active' : ''}`} onClick={() => setView('planner')}>
+            <span className="ic">{IC.calendar}</span>
+            <span>Planner</span>
+            <span className="badge">{plannerEvents.length}</span>
+          </button>
+          <div className="sw-nav-grp">Insights</div>
+          <button className={`sw-nav-item${view === 'stats' ? ' is-active' : ''}`} onClick={() => setView('stats')}>
+            <span className="ic">{IC.chart}</span>
+            <span>Stats</span>
+            <span className="badge">{Math.round(usageRate)}%</span>
+          </button>
+        </nav>
+
+        <div className="sw-side-foot">
+          <div className="sw-avatar">{userInitials}</div>
+          <div className="who">
+            {userDisplayName}
+            <small>{userEmail}</small>
+          </div>
+          <button className="cog" onClick={toggleTheme} title={isDarkMode ? 'Switch to light' : 'Switch to dark'}>
+            {isDarkMode ? IC.sun : IC.moon}
+          </button>
         </div>
       </aside>
 
-      <main className="stage">
-        <div className="centered-content">
-          <h2 className="soft-title">
-            {view === 'dashboard' ? 'dashboard' : view === 'clothes' ? 'your wardrobe' : view === 'outfits' ? 'generated outfits' : view === 'planner' ? 'outfit planner' : 'wardrobe insights'}
-          </h2>
+      {/* ===== MAIN ===== */}
+      <main className="sw-main">
+        <div className="sw-top">
+          <div className="sw-mobile-brand">
+            <div className="mark">W</div>
+            SmartWardrobe
+          </div>
+          <div className="ttl">
+            {view === 'generate' ? 'Generate' : view === 'wardrobe' ? 'Wardrobe' : view === 'outfits' ? 'Outfits' : view === 'planner' ? 'Planner' : 'Stats'}
+            <small>
+              {view === 'generate' ? 'AI STYLIST' : view === 'wardrobe' ? `${clothes.length} ITEMS` : view === 'outfits' ? `${outfits.length} SAVED` : view === 'planner' ? `${plannerEvents.length} EVENTS` : 'INSIGHTS'}
+            </small>
+          </div>
+          <div className="spacer" />
+          <button className="sw-icon-btn" onClick={() => fileInputRef.current?.click()} title="Add clothing item">{IC.plus}</button>
+          <button className="sw-icon-btn" onClick={onLogout} title="Log out">{IC.logout}</button>
+        </div>
 
-          {view === 'dashboard' && weatherAlert && (
-            <div style={{ marginBottom: '20px' }}>
-              <WeatherAlertNotice
-                alert={weatherAlert}
-                locationLabel={
-                  weatherAlert?.plannerEventId && plannerEvents.find(e => e.id === weatherAlert.plannerEventId)?.location
-                }
-                onGenerateAlternative={() => {
-                  if (weatherAlert?.plannerEventId) {
-                    const event = plannerEvents.find(e => e.id === weatherAlert.plannerEventId);
-                    if (event && weatherAlert.eventDate) {
-                      // Need to find the itinerary ID for this specific date
-                      const alertDate = new Date(weatherAlert.eventDate).toDateString();
-                      const itinerary = event.itineraries.find(i => new Date(i.date).toDateString() === alertDate);
-                      if (itinerary) {
-                        onRegenerateItinerary(event.id, itinerary.id);
-                        setWeatherAlert(null); // Dismiss alert after action
-                        return;
-                      }
-                    }
-                    onGenerateEventOutfits(weatherAlert.plannerEventId);
+        <div className="sw-content">
+          {view === 'generate' ? (
+            <div className="sw-stack">
+              {weatherAlert && (
+                <WeatherAlertNotice
+                  alert={weatherAlert}
+                  locationLabel={
+                    weatherAlert?.plannerEventId && plannerEvents.find(e => e.id === weatherAlert.plannerEventId)?.location
                   }
-                }}
-                onDismiss={() => setWeatherAlert(null)}
-              />
-            </div>
-          )}
+                  onGenerateAlternative={() => {
+                    if (weatherAlert?.plannerEventId) {
+                      const event = plannerEvents.find(e => e.id === weatherAlert.plannerEventId);
+                      if (event && weatherAlert.eventDate) {
+                        const alertDate = new Date(weatherAlert.eventDate).toDateString();
+                        const itinerary = event.itineraries.find(i => new Date(i.date).toDateString() === alertDate);
+                        if (itinerary) {
+                          onRegenerateItinerary(event.id, itinerary.id);
+                          setWeatherAlert(null);
+                          return;
+                        }
+                      }
+                      onGenerateEventOutfits(weatherAlert.plannerEventId);
+                    }
+                  }}
+                  onDismiss={() => setWeatherAlert(null)}
+                />
+              )}
 
-          {view === 'dashboard' ? (
-            <div className="dashboard-layout dashboard-layout-v2">
-              <section className="dashboard-hero-card">
-                <div className="hero-main">
-                  <div className="hero-chip">{greetingLabel}</div>
-                  <h3 className="hero-title">{firstName}, here is your daily briefing.</h3>
-                  <p className="hero-subtitle">
-                    {todaysEventSummary.totalEvents === 0
-                      ? 'No events planned today. Generate a look and schedule your next occasion.'
-                      : `${todaysEventSummary.totalEvents} event${todaysEventSummary.totalEvents > 1 ? 's' : ''} today, ${todaysEventSummary.plannedCount} outfit${todaysEventSummary.plannedCount !== 1 ? 's' : ''} ready.`}
-                  </p>
-
-                  <div className="hero-metrics-grid">
-                    <div className="hero-metric-card">
-                      <span>today's events</span>
-                      <strong>{todaysEventSummary.totalEvents}</strong>
-                    </div>
-                    <div className="hero-metric-card">
-                      <span>ready outfits</span>
-                      <strong>{todaysEventSummary.plannedCount}</strong>
-                    </div>
-                    <div className="hero-metric-card">
-                      <span>need planning</span>
-                      <strong>{todaysEventSummary.missingCount}</strong>
-                    </div>
-                    <div className="hero-metric-card">
-                      <span>week readiness</span>
-                      <strong>{weekDaysWithEvents.length === 0 ? 'n/a' : `${weekReadyDays}/${weekDaysWithEvents.length}`}</strong>
-                    </div>
-                  </div>
-
-                  <div className="hero-actions-row">
-                    <button className="hero-primary-action" onClick={() => handleQuickAction('generate-today')} disabled={loading || clothes.length === 0}>
-                      Generate today&apos;s outfit
-                    </button>
-                    <button className="hero-secondary-action" onClick={openPlannerForToday}>
-                      Plan missing looks
-                    </button>
+              <div className="sw-gen-hero">
+                <div className="copy">
+                  <div className="sw-label-mono" style={{ marginBottom: 14 }}>· AI STYLIST</div>
+                  <h1>What should you<br /><em>wear today?</em></h1>
+                  <p>Describe the day, occasion, or mood. SmartWardrobe pairs items from your closet using fit, colour, weather and your calendar.</p>
+                  <div className="stat-row">
+                    <div className="stat"><div className="n">{clothes.length}</div><div className="l">Items</div></div>
+                    <div className="stat"><div className="n">{outfits.length}</div><div className="l">Saved looks</div></div>
+                    <div className="stat"><div className="n">{todaysEventSummary.totalEvents}</div><div className="l">Today&apos;s events</div></div>
                   </div>
                 </div>
-
-                <div className="hero-side-panel">
-                  <button
-                    className="hero-location-button"
-                    onClick={() => {
-                      setSearchTerm('');
-                      setCityModal(true);
-                    }}
-                  >
-                    {city}
-                  </button>
-                  <div className="hero-weather-temp">{weatherInfo ? `${Math.round(weatherInfo.temperature)}°C` : '--'}</div>
-                  <div className="hero-weather-condition">{weatherInfo?.condition || 'weather updating...'}</div>
-                  <div className="hero-weather-meta">season tip: {weatherInfo?.seasonSuggestion || 'n/a'}</div>
-                  <div className="hero-readiness-block">
+                <div className="sw-weather-card">
+                  <button className="wc-city" onClick={() => { setSearchTerm(''); setCityModal(true); }}>{city}</button>
+                  <div className="wc-temp">{weatherInfo ? `${Math.round(weatherInfo.temperature)}` : '--'}<sup>°</sup></div>
+                  <div className="wc-cond">{weatherInfo?.condition || 'updating...'}</div>
+                  <div className="wc-meta">season: {weatherInfo?.seasonSuggestion || 'n/a'}</div>
+                  <div className="hero-readiness-block" style={{ marginTop: 'auto' }}>
                     <span>today readiness</span>
                     <strong>{todaysReadinessPercent}%</strong>
                     <div className="hero-progress-track">
@@ -1583,33 +1518,42 @@ const onUpdateItinerary = async () => {
                     </div>
                   </div>
                 </div>
-              </section>
+              </div>
 
-              <section className="dashboard-quick-actions-card">
-                <div className="dashboard-section-header">
-                  <h3>Quick actions</h3>
-                  <span>one-click workflows</span>
-                </div>
-                <div className="quick-actions-grid">
-                  {quickActions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className="quick-action-button"
-                      onClick={() => handleQuickAction(action.id)}
-                      disabled={action.disabled}
-                    >
-                      <strong>{action.label}</strong>
-                      <span>{action.hint}</span>
-                    </button>
+              <div className="sw-prompt">
+                <textarea
+                  placeholder="e.g. Office meeting in the morning, then dinner with friends — want to look polished but comfortable…"
+                  value={generatePrompt}
+                  onChange={e => setGeneratePrompt(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); } }}
+                />
+                <div className="chips">
+                  {[
+                    { label: 'Office day', value: "A polished outfit for the office, today's weather" },
+                    { label: 'Date night', value: 'Smart casual for a dinner date' },
+                    { label: 'Coffee + errands', value: 'Comfy but put-together for the weekend' },
+                    { label: 'Job interview', value: 'Formal interview outfit, neutral' },
+                    { label: 'Travel day', value: 'Comfortable for a long flight, smart at arrival' },
+                  ].map(c => (
+                    <button key={c.label} className="sw-pill" onClick={() => setGeneratePrompt(c.value)}>{c.label}</button>
                   ))}
                 </div>
-              </section>
+                <div className="sw-prompt-foot">
+                  <span className="sw-label-mono">click generate or press ⌘↵</span>
+                  <div style={{ flex: 1 }} />
+                  <button className="sw-btn ghost" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>Surprise me</button>
+                  <button className="sw-btn accent" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>
+                    {IC.sparkles}<span>{loading ? 'Generating…' : 'Generate outfits'}</span>
+                  </button>
+                </div>
+              </div>
 
-              <section className="dashboard-week-strip-card">
-                <div className="dashboard-section-header">
-                  <h3>Upcoming 7 days</h3>
-                  <span>tap any day to jump into planner</span>
+              <div className="sw-week-section">
+                <div className="sw-section-h">
+                  <h2>Upcoming 7 days</h2>
+                  <span className="meta">tap any day to jump into planner</span>
+                  <div className="grow" />
+                  <button className="sw-btn ghost" onClick={openPlannerForToday}>Open planner</button>
                 </div>
                 <div className="week-strip-grid">
                   {upcomingWeekDays.map((day) => (
@@ -1617,7 +1561,6 @@ const onUpdateItinerary = async () => {
                       key={day.dayKey}
                       className={`week-day-card ${day.isToday ? 'today' : ''} ${day.status}`}
                       onClick={() => setPreviewDay(day)}
-                      style={{ cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column' }}
                     >
                       <div className="week-day-top">
                         <span>{day.weekdayLabel}</span>
@@ -1634,20 +1577,18 @@ const onUpdateItinerary = async () => {
                           ? `${day.primaryEvent.name}${day.totalEvents > 1 ? ` +${day.totalEvents - 1}` : ''}`
                           : 'No planned events'}
                       </p>
-                      
                       {day.primaryItinerary?.outfit && (
                         <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', margin: '8px 0', justifyContent: 'center' }}>
                           {day.primaryItinerary.outfit.items?.slice(0, 3).map(item => (
-                            <img 
-                              key={item.id} 
-                              src={item.processedImageUrl} 
-                              alt={item.name} 
-                              style={{ width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-subtle)', objectFit: 'cover', flexShrink: 0 }} 
+                            <img
+                              key={item.id}
+                              src={item.processedImageUrl}
+                              alt={item.name}
+                              style={{ width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-subtle)', objectFit: 'cover', flexShrink: 0 }}
                             />
                           ))}
                         </div>
                       )}
-
                       <span className="week-day-status" style={{ marginTop: 'auto' }}>
                         {day.totalEvents === 0
                           ? 'Free day'
@@ -1658,373 +1599,443 @@ const onUpdateItinerary = async () => {
                     </div>
                   ))}
                 </div>
-              </section>
-
-              <section className="dashboard-weather-compact">
-                <div className="dashboard-section-header">
-                  <h3>Weather focus</h3>
-                  <span>quick context for generation</span>
-                </div>
-                <div className="weather-compact-content">
-                  <button
-                    className="weather-compact-location"
-                    onClick={() => {
-                      setSearchTerm('');
-                      setCityModal(true);
-                    }}
-                  >
-                    {city}
-                  </button>
-                  <div className="weather-compact-info">
-                    <strong>{weatherInfo ? `${Math.round(weatherInfo.temperature)}°C` : '--'}</strong>
-                    <span>{weatherInfo?.condition || 'condition unavailable'}</span>
-                    <small>season suggestion: {weatherInfo?.seasonSuggestion || 'n/a'}</small>
-                  </div>
-                  <button className="hero-primary-action compact" onClick={() => handleQuickAction('generate-today')} disabled={loading || clothes.length === 0}>
-                    Generate now
-                  </button>
-                </div>
-              </section>
-
-              {/* Sections Removed as requested */}
-            </div>
-          ) : view === 'clothes' ? (
-            <div className="wardrobe-container">
-              <div className="upload-section">
-                <div className="empty-state-card" onClick={() => fileInputRef.current.click()}>+ ADD NEW ITEM</div>
               </div>
-              {CLOTHING_TYPES.map((typeName, typeIndex) => {
-                const filtered = clothes.filter(i => i.type === typeIndex);
-                if (filtered.length === 0) return null;
-                return (
-                  <div key={typeName} className="category-section">
-                    <h3 className="category-title">{typeName === 'ACCESSORY' ? 'ACCESSORIES' : typeName}</h3>
-                    <div className="clothes-grid">
-                      {filtered.map(item => (
-                        <div key={item.id} className="item-card" onClick={() => setSelectedItem(item)}>
-                          <button className="delete-trigger" onClick={(e) => { e.stopPropagation(); onDelete('cloth', item.id); }}>remove</button>
-                          <img src={item.processedImageUrl} alt="" />
-                          <span className="item-name-tag">{item.name}</span>
-                        </div>
-                      ))}
+            </div>
+          ) : view === 'wardrobe' ? (
+            <div className="sw-stack">
+              <div className="sw-filter-bar">
+                <div className="sw-search">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                  <input placeholder="Search your wardrobe…" value={wardrobeSearch} onChange={e => setWardrobeSearch(e.target.value)} />
+                </div>
+                <div className="sw-seg" role="tablist">
+                  {['ALL', ...CLOTHING_TYPES].map(t => (
+                    <button key={t} className={wardrobeTypeFilter === t ? 'on' : ''} onClick={() => setWardrobeTypeFilter(t)}>
+                      {t === 'ALL' ? 'All' : t}
+                    </button>
+                  ))}
+                </div>
+                <span className="sw-label-mono">{filteredClothes.length} items</span>
+              </div>
+              {wardrobeTags.length > 0 && (
+                <div className="sw-filters">
+                  <button
+                    className={`sw-pill${wardrobeTagFilter === null ? ' is-active' : ''}`}
+                    onClick={() => setWardrobeTagFilter(null)}
+                  >
+                    All tags
+                  </button>
+                  {wardrobeTags.map(t => (
+                    <button
+                      key={t}
+                      className={`sw-pill${wardrobeTagFilter === t ? ' is-active' : ''}`}
+                      onClick={() => setWardrobeTagFilter(wardrobeTagFilter === t ? null : t)}
+                    >
+                      + {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="sw-wrd-grid">
+                <button className="sw-add-tile" onClick={() => fileInputRef.current?.click()}>
+                  <div className="sw-add-tile-icon">{IC.plus}</div>
+                  <span>Add item</span>
+                </button>
+                {filteredClothes.map(item => (
+                  <div key={item.id} className="sw-item" onClick={() => setSelectedItem(item)}>
+                    <div className="thumb">
+                      <img src={item.processedImageUrl} alt={item.name} />
+                      <button className="del-btn" onClick={e => { e.stopPropagation(); onDelete('cloth', item.id); }}>remove</button>
+                    </div>
+                    <div className="meta">
+                      <span className="name">{item.name}</span>
+                      <span className="sub">{typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type}</span>
                     </div>
                   </div>
-                );
-              })}
+                ))}
+                {filteredClothes.length === 0 && (
+                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 20px' }}>
+                    <p style={{ color: 'var(--fg-muted)', fontSize: '0.9rem' }}>
+                      {clothes.length === 0 ? 'Your wardrobe is empty. Add your first item!' : 'No items match those filters.'}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           ) : view === 'outfits' ? (
-            <div className="outfits-view-container">
-              <div className="outfits-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div className="outfits-filters" style={{ display: 'flex', gap: '10px' }}>
-                  <button 
-                    className={`nav-btn ${outfitFilter === 'all' ? 'active' : ''}`} 
-                    onClick={() => setOutfitFilter('all')}
-                  >
-                    All Outfits
-                  </button>
-                  <button 
-                    className={`nav-btn ${outfitFilter === 'favorites' ? 'active' : ''}`} 
-                    onClick={() => setOutfitFilter('favorites')}
-                  >
-                    Favorites
-                  </button>
+            <div className="sw-stack">
+              <div className="sw-section-h">
+                <h2>Saved outfits</h2>
+                <span className="meta">{outfits.filter(o => outfitFilter === 'all' || o.isFavorite).length} looks</span>
+                <div className="grow" />
+                <div className="sw-seg">
+                  <button className={outfitFilter === 'all' ? 'on' : ''} onClick={() => setOutfitFilter('all')}>All</button>
+                  <button className={outfitFilter === 'favorites' ? 'on' : ''} onClick={() => setOutfitFilter('favorites')}>Favorites</button>
                 </div>
-                <button 
-                  className="gen-btn"
-                  onClick={() => setCustomOutfitModal(true)}
-                  style={{ padding: '10px 24px', fontSize: '0.85rem', background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(var(--accent-rgb), 0.3)' }}
-                >
-                  + CREATE OUTFIT
-                </button>
+                <div className="sw-seg">
+                  <button className={outfitView === 'grid' ? 'on' : ''} onClick={() => setOutfitView('grid')}>Grid</button>
+                  <button className={outfitView === 'list' ? 'on' : ''} onClick={() => setOutfitView('list')}>List</button>
+                </div>
+                <button className="sw-btn" onClick={() => setCustomOutfitModal(true)}>{IC.plus}<span>Create outfit</span></button>
               </div>
-              <div className="outfits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-              {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).map(o => (
-                <div key={o.id} className="outfit-card" style={{ background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-                  <div className="outfit-card-header" style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <h3 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', color: 'var(--fg)' }}>{o.name}</h3>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>{new Date(o.createdAt).toLocaleDateString()} {o.isAiGenerated && '• AI Generated'}</span>
-                      {o.tags && o.tags.length > 0 && (
-                        <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          {o.tags.map(tag => (
-                            <span key={tag} style={{ background: 'var(--bg-subtle)', color: 'var(--fg)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.6rem', border: '1px solid var(--border-subtle)' }}>
-                              {tag}
-                            </span>
-                          ))}
+
+              {outfitView === 'grid' ? (
+                <div className="sw-results sw-rise">
+                  {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).map(o => (
+                    <div key={o.id} className="sw-outfit-card">
+                      <div className="hd">
+                        <div>
+                          <div className="ttl">{o.name}</div>
+                          <div className="sub">{new Date(o.createdAt).toLocaleDateString()}{o.isAiGenerated ? ' · AI' : ''}</div>
                         </div>
+                        <div className="grow" />
+                        <button
+                          className={`heart-btn${o.isFavorite ? ' on' : ''}`}
+                          onClick={() => onToggleFavorite(o)}
+                          title={o.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill={o.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8Z"/></svg>
+                        </button>
+                      </div>
+                      <div className="sw-outfit-grid lg">
+                        {o.items?.slice(0, 5).map((item) => (
+                          <div key={item.id} className="o-cell" onClick={() => setSelectedItem(item)}>
+                            <img src={item.processedImageUrl} alt={item.name} />
+                            <span className="tag">{typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="ft">
+                        <div className="tags">
+                          {o.tags?.length > 0
+                            ? o.tags.map(t => <span key={t} className="sw-tag">{t}</span>)
+                            : <span className="sw-tag">{o.isAiGenerated ? 'AI' : 'Custom'}</span>
+                          }
+                        </div>
+                        <div className="grow" />
+                        <button className="sw-del-btn" onClick={() => onDelete('outfit', o.id)} title="Delete">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                        <button className="sw-btn ghost" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [], tags: o.tags || [] }); setEditModal(true); }}>Edit</button>
+                        <button className="sw-btn" onClick={() => onWearOutfit(o.id)}>Wear</button>
+                      </div>
+                    </div>
+                  ))}
+                  {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).length === 0 && (
+                    <div className="sw-empty">
+                      <h3>{outfitFilter === 'favorites' ? 'No favorites yet' : 'No outfits yet'}</h3>
+                      <p>{outfitFilter === 'favorites' ? 'Heart an outfit to add it here.' : 'Generate your first AI outfit or create one manually.'}</p>
+                      {outfitFilter === 'all' && (
+                        <button className="sw-btn accent" onClick={() => onGenerate()} disabled={clothes.length === 0}>Generate outfit</button>
                       )}
                     </div>
-                    <button 
-                      onClick={() => onToggleFavorite(o)} 
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.2s', color: o.isFavorite ? 'var(--danger)' : 'var(--fg-muted)' }}
-                      title={o.isFavorite ? "Remove from favorites" : "Add to favorites"}
-                    >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill={o.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinelinejoin="round">
-                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="outfit-card-items" style={{ padding: '16px', display: 'flex', gap: '10px', overflowX: 'auto', flex: 1, alignItems: 'center', background: 'var(--bg)' }}>
-                    {o.items && o.items.map(i => (
-                      <div key={i.id} onClick={() => setSelectedItem(i)} style={{ flexShrink: 0, width: '70px', height: '70px', borderRadius: '12px', background: 'var(--bg-raised)', cursor: 'pointer', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                        <img src={i.processedImageUrl} alt="" title={i.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  )}
+                </div>
+              ) : (
+                <div className="sw-outfit-list sw-rise">
+                  {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).map(o => (
+                    <div key={o.id} className="sw-outfit-list-item">
+                      <div className="sw-outfit-list-thumbs">
+                        {o.items?.slice(0, 4).map(item => (
+                          <div key={item.id} className="o-thumb">
+                            <img src={item.processedImageUrl} alt={item.name} />
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="outfit-card-actions" style={{ padding: '12px 16px', display: 'flex', gap: '8px', background: 'var(--card-bg)', borderTop: '1px solid var(--border-subtle)' }}>
-                    <button onClick={() => onWearOutfit(o.id)} style={{ flex: 1, background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', padding: '8px 0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>WEAR</button>
-                    <button onClick={() => { setPlanData({ outfitId: o.id, plannerEventId: '', selectedDayIndex: null, moment: '' }); setPlanModal(true); }} style={{ flex: 1, background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border)', padding: '8px 0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>PLAN</button>
-                    <button className="edit-mini-btn" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [] }); setEditModal(true); }} style={{ padding: '8px', background: 'var(--bg-raised)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Edit">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                    </button>
-                    <button onClick={() => onDelete('outfit', o.id)} style={{ padding: '8px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid var(--danger-border, var(--danger))', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Delete">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
-                  </div>
+                      <div className="sw-outfit-list-info">
+                        <div className="ttl">{o.name}</div>
+                        <div className="sub">{new Date(o.createdAt).toLocaleDateString()}{o.isAiGenerated ? ' · AI' : ''}</div>
+                        <div className="sw-outfit-list-tags">
+                          {o.tags?.length > 0
+                            ? o.tags.map(t => <span key={t} className="sw-tag">{t}</span>)
+                            : <span className="sw-tag">{o.isAiGenerated ? 'AI' : 'Custom'}</span>
+                          }
+                        </div>
+                      </div>
+                      <div className="sw-outfit-list-actions">
+                        <button
+                          className={`heart-btn${o.isFavorite ? ' on' : ''}`}
+                          onClick={() => onToggleFavorite(o)}
+                          title={o.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill={o.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8Z"/></svg>
+                        </button>
+                        <button className="sw-del-btn" onClick={() => onDelete('outfit', o.id)} title="Delete">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                        <button className="sw-btn ghost" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [], tags: o.tags || [] }); setEditModal(true); }}>Edit</button>
+                        <button className="sw-btn" onClick={() => onWearOutfit(o.id)}>Wear</button>
+                      </div>
+                    </div>
+                  ))}
+                  {outfits.filter(o => outfitFilter === 'all' || o.isFavorite).length === 0 && (
+                    <div className="sw-empty" style={{ gridColumn: 'unset' }}>
+                      <h3>{outfitFilter === 'favorites' ? 'No favorites yet' : 'No outfits yet'}</h3>
+                      <p>{outfitFilter === 'favorites' ? 'Heart an outfit to add it here.' : 'Generate your first AI outfit or create one manually.'}</p>
+                      {outfitFilter === 'all' && (
+                        <button className="sw-btn accent" onClick={() => onGenerate()} disabled={clothes.length === 0}>Generate outfit</button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
-              </div>
+              )}
             </div>
-) : view === 'planner' ? (
-            <div className="planner-layout">
-              {/* Event Rail */}
-              <div className="planner-event-rail">
-                <div className="planner-rail-header">
-                  <span className="rail-title">EVENTS</span>
-                  <button 
-                    className="rail-add-btn"
-                    onClick={() => setCreateEventModal(true)}
-                  >
-                    +
-                  </button>
-                </div>
-                
-                {/* Event Tabs */}
-                <div className="event-tabs">
-                  <button 
-                    className={`event-tab ${plannerEventTab === 'active' ? 'active' : ''}`} 
-                    onClick={() => setPlannerEventTab('active')}
-                  >
-                    ACTIVE ({plannerEvents.length})
-                  </button>
-                  <button 
-                    className={`event-tab ${plannerEventTab === 'archived' ? 'active' : ''}`} 
-                    onClick={() => setPlannerEventTab('archived')}
-                  >
-                    ARCHIVED ({archivedPlannerEvents.length})
-                  </button>
+          ) : view === 'planner' ? (
+            <div className="sw-planner-layout">
+
+              {/* ── Left rail: event list ── */}
+              <div className="sw-planner-rail">
+                <div className="sw-planner-rail-top">
+                  <div className="sw-section-h" style={{ marginBottom: 12 }}>
+                    <h2>Events</h2>
+                    <div style={{ flex: 1 }} />
+                    <button className="sw-btn" onClick={() => setCreateEventModal(true)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      <span>New</span>
+                    </button>
+                  </div>
+                  <div className="sw-seg" style={{ width: '100%' }}>
+                    <button className={plannerEventTab === 'active' ? 'on' : ''} onClick={() => setPlannerEventTab('active')}>
+                      Active {plannerEvents.length > 0 && <span className="sw-seg-count">{plannerEvents.length}</span>}
+                    </button>
+                    <button className={plannerEventTab === 'archived' ? 'on' : ''} onClick={() => setPlannerEventTab('archived')}>
+                      Archived {archivedPlannerEvents.length > 0 && <span className="sw-seg-count">{archivedPlannerEvents.length}</span>}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="planner-event-list">
-                  {plannerEventTab === 'active' ? (
-                    plannerEvents.length === 0 ? (
-                      <div className="planner-empty-hint">No events yet</div>
-                    ) : (
-                      plannerEvents.map(event => (
-                        <div 
-                          key={event.id}
-                          className={`planner-event-card ${selectedPlannerEvent?.id === event.id ? 'active' : ''}`}
-                          onClick={() => { setSelectedPlannerEvent(event); setSelectedDayIndex(null); fetchEventForecast(event); setPlannerEventTab('active'); }}
-                        >
-                          <div className="event-card-name">{event.name}</div>
-                          <div className="event-card-meta">
-                            {new Date(event.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                            {event.type && <span className="event-type-badge">{event.type}</span>}
-                          </div>
-                        </div>
-                      ))
-                    )
+                <div className="sw-planner-event-list">
+                  {(plannerEventTab === 'active' ? plannerEvents : archivedPlannerEvents).length === 0 ? (
+                    <div className="sw-planner-rail-empty">
+                      {plannerEventTab === 'active' ? 'No events yet' : 'No archived events'}
+                    </div>
                   ) : (
-                    archivedPlannerEvents.length === 0 ? (
-                      <div className="planner-empty-hint">No archived events</div>
-                    ) : (
-                      archivedPlannerEvents.map(event => (
-                        <div 
+                    (plannerEventTab === 'active' ? plannerEvents : archivedPlannerEvents).map(event => {
+                      const isActive = selectedPlannerEvent?.id === event.id;
+                      const totalDays = Math.ceil((new Date(event.endDate) - new Date(event.startDate)) / 86400000) + 1;
+                      const plannedDays = event.itineraries?.length || 0;
+                      return (
+                        <div
                           key={event.id}
-                          className={`planner-event-card ${selectedPlannerEvent?.id === event.id ? 'active' : ''}`}
-                          onClick={() => { setSelectedPlannerEvent(event); setSelectedDayIndex(null); fetchEventForecast(event); setPlannerEventTab('archived'); }}
+                          className={`sw-planner-event-card${isActive ? ' active' : ''}`}
+                          onClick={() => { setSelectedPlannerEvent(event); setSelectedDayIndex(null); fetchEventForecast(event); }}
                         >
-                          <div className="event-card-name">{event.name}</div>
-                          <div className="event-card-meta">
-                            {new Date(event.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                            {event.type && <span className="event-type-badge archived">{event.type}</span>}
+                          <div className="spec-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+                          </div>
+                          <div className="spec-body">
+                            <div className="spec-name">{event.name}</div>
+                            <div className="spec-meta">
+                              {event.location && <span>{event.location}</span>}
+                              <span>{new Date(event.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {new Date(event.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            </div>
+                            <div className="spec-progress">
+                              <div className="spec-prog-bar">
+                                <span style={{ width: totalDays > 0 ? `${(plannedDays / totalDays) * 100}%` : '0%' }} />
+                              </div>
+                              <span className="spec-prog-label">{plannedDays}/{totalDays} days planned</span>
+                            </div>
                           </div>
                         </div>
-                      ))
-                    )
+                      );
+                    })
                   )}
                 </div>
               </div>
 
-              {/* Day Timeline */}
-              <div className="planner-timeline">
+              {/* ── Main content ── */}
+              <div className="sw-planner-main">
                 {!selectedPlannerEvent ? (
-                  <div className="planner-empty-state">
-                    <div className="empty-icon"></div>
-                    <div className="empty-text">Select an event to view timeline</div>
+                  <div className="sw-empty" style={{ height: '100%', gridColumn: 'unset' }}>
+                    <h3>No event selected</h3>
+                    <p>Pick an event from the list, or create a new one.</p>
+                    <button className="sw-btn accent" onClick={() => setCreateEventModal(true)}>New event</button>
                   </div>
-                ) : (
-                  <>
-                    <div className="timeline-header">
-                      <h2 className="timeline-title">{selectedPlannerEvent.name}</h2>
-                      <div className="timeline-meta">
-                        {selectedPlannerEvent.location} • {new Date(selectedPlannerEvent.startDate).toLocaleDateString()} - {new Date(selectedPlannerEvent.endDate).toLocaleDateString()}
+
+                ) : selectedDayIndex !== null && plannerDays[selectedDayIndex] ? (() => {
+                  const day = plannerDays[selectedDayIndex];
+                  const itin = selectedDayItinerary;
+                  const outfitItems = itin?.outfit?.items || [];
+                  return (
+                    <div className="sw-stack">
+                      {/* Back + day label */}
+                      <div className="sw-planner-day-nav">
+                        <button className="sw-btn ghost sw-planner-back" onClick={() => setSelectedDayIndex(null)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                          <span>{selectedPlannerEvent.name}</span>
+                        </button>
+                        <div style={{ flex: 1 }} />
+                        <span className="sw-label-mono">{selectedPlannerEvent.location}</span>
                       </div>
-                      <div className="timeline-actions">
-                        <button 
-                          className="gen-btn"
-                          onClick={() => handlePackSmart(selectedPlannerEvent.id)}
-                          style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}
-                        >
-                          PACK SMART 🎒
-                        </button>
-                        <button 
-                          className="gen-btn"
-                          onClick={() => onGenerateEventOutfits(selectedPlannerEvent.id)}
-                        >
-                          GENERATE OUTFITS
-                        </button>
-                        <button 
-                          className="small-action-btn"
-                          onClick={() => {
-                            setEditEventData({
-                              id: selectedPlannerEvent.id,
-                              name: selectedPlannerEvent.name,
-                              type: selectedPlannerEvent.type,
-                              location: selectedPlannerEvent.location,
-                              startDate: selectedPlannerEvent.startDate.split('T')[0],
-                              endDate: selectedPlannerEvent.endDate.split('T')[0],
-                              preferredStyles: selectedPlannerEvent.preferredStyles || []
-                            });
-                            setEditEventModal(true);
-                          }}
-                        >
-                          EDIT EVENT
-                        </button>
-                        <button 
-                          className="delete-outfit-btn"
-                          onClick={() => { if(confirm('Archive this event?')) onArchiveEvent(selectedPlannerEvent.id); }}
-                          disabled={loading}
-                        >
-                          ARCHIVE
-                        </button>
-                        <button 
-                          className="delete-outfit-btn"
-                          onClick={() => { if(confirm('Delete this event?')) onDeletePlannerEvent(selectedPlannerEvent.id); setSelectedPlannerEvent(null); }}
-                        >
-                          DELETE
-                        </button>
-                      </div>
-                    </div>
-                    <div className="day-cards-grid">
-                      {plannerDays.map((day, idx) => (
-                        <div 
-                          key={idx}
-                          className={`day-card ${selectedDayIndex === idx ? 'selected' : ''} ${day.itinerary ? 'has-outfit' : 'empty'}`}
-                          onClick={() => setSelectedDayIndex(idx)}
-                        >
-                          <div className="day-card-header">
-                            <span className="day-number">Day {day.dayNumber}</span>
-                            <span className="day-date">{day.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+
+                      {/* Day hero */}
+                      <div className="sw-today-hero">
+                        <div className="left">
+                          <div className="day-head">
+                            <div>
+                              <div className="lbl">DAY {day.dayNumber} · {day.date.toLocaleDateString(undefined, { weekday: 'long' }).toUpperCase()} {day.date.getDate()} {day.date.toLocaleDateString(undefined, { month: 'long' }).toUpperCase()}</div>
+                              <h2>{itin?.outfit?.name || <em>No outfit yet</em>}</h2>
+                            </div>
                           </div>
+
                           {day.weather && (
-                            <div className="day-weather-chip">
-                              <span className="weather-temp">{Math.round(day.weather.temperature)}°C</span>
-                              <span className="weather-condition">{day.weather.condition}</span>
+                            <div className="weather-strip">
+                              <span className="ic">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                  {/rain/i.test(day.weather.condition) ? <><line x1="16" y1="13" x2="16" y2="21"/><line x1="8" y1="13" x2="8" y2="21"/><line x1="12" y1="15" x2="12" y2="23"/><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/></>
+                                  : /cloud/i.test(day.weather.condition) ? <><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></>
+                                  : <><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></>}
+                                </svg>
+                              </span>
+                              <div className="txt">
+                                <div className="a">{Math.round(day.weather.temperature)}°C</div>
+                                <div className="b">{day.weather.condition}</div>
+                              </div>
+                              {itin && (
+                                <div className="match">
+                                  <div className="a" style={{ fontSize: 13 }}>{itin.moment}</div>
+                                  <div className="b">OCCASION</div>
+                                </div>
+                              )}
                             </div>
                           )}
-                          {day.itinerary ? (
-                            <div className="day-outfit-preview">
-                              <div className="outfit-mini-grid">
-                                {day.itinerary.outfit?.items?.slice(0, 3).map(item => (
-                                  <div key={item.id} className="mini-item">
-                                    <img src={item.processedImageUrl} alt="" />
+
+                          <div className="actions">
+                            {itin ? (
+                              <>
+                                <button className="sw-btn" onClick={() => onRegenerateItinerary(selectedPlannerEvent.id, itin.id)} disabled={loading}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                  <span>Regenerate</span>
+                                </button>
+                                <button className="sw-btn ghost" onClick={() => openOutfitEditingModal(selectedPlannerEvent.id, itin, day, selectedDayIndex)}>Edit outfit</button>
+                                <button className="sw-btn ghost" onClick={() => openEditItineraryModal(selectedPlannerEvent.id, itin)}>Edit details</button>
+                                <button className="sw-del-btn" onClick={() => { onDeleteItinerary(selectedPlannerEvent.id, itin.id); setSelectedDayIndex(null); }} title="Remove outfit">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                              </>
+                            ) : (
+                              <button className="sw-btn accent" onClick={() => openOutfitEditingModal(selectedPlannerEvent.id, null, day, selectedDayIndex, 'plan')}>
+                                Plan outfit for this day
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="right">
+                          {outfitItems.length > 0 ? (
+                            <>
+                              <div className="outfit-pre-name">
+                                <span className="nm">{itin.outfit?.name}</span>
+                                <span className="lb">{outfitItems.length} items</span>
+                              </div>
+                              <div className="outfit-pre">
+                                {outfitItems.slice(0, 5).map(item => (
+                                  <div key={item.id} className="o-cell" onClick={() => setSelectedItem(item)}>
+                                    <img src={item.processedImageUrl} alt={item.name} />
+                                    <span className="tag">{typeof item.type === 'number' ? CLOTHING_TYPES[item.type] : item.type}</span>
                                   </div>
                                 ))}
                               </div>
-                              <div className="day-moment">{day.itinerary.moment}</div>
-                            </div>
+                            </>
                           ) : (
-                            <div className="day-empty-hint">No outfit planned</div>
+                            <div className="sw-planner-day-empty-right">
+                              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--fg-muted)', opacity: .4 }}><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                              <span>No outfit assigned yet</span>
+                            </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Detail Panel */}
-              <div className="planner-detail-panel">
-                {!selectedPlannerEvent || selectedDayIndex === null ? (
-                  <div className="planner-empty-state">
-                    <div className="empty-icon"></div>
-                    <div className="empty-text">Select a day to view details</div>
-                  </div>
-                ) : (
-                  <div className="day-detail-content">
-                    <div className="detail-header">
-                      <div>
-                        <h3 className="detail-day-title">Day {selectedDayIndex + 1}</h3>
-                        <p className="detail-date">{plannerDays[selectedDayIndex]?.date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
                       </div>
                     </div>
-
-                    {selectedDayItinerary ? (
-                      <>
-                        <div className="detail-outfit">
-                          <h4 className="detail-section-title">{selectedDayItinerary.outfit?.name || 'Outfit'}</h4>
-                          <div className="outfit-items-grid">
-                            {selectedDayItinerary.outfit?.items?.map(item => (
-                              <div key={item.id} className="detail-item-card" onClick={() => setSelectedItem(item)}>
-                                <img src={item.processedImageUrl} alt="" />
-                                <span className="item-name">{item.name}</span>
-                              </div>
-                            ))}
+                  );
+                })() : (
+                  /* Event overview: trip header + week strip */
+                  <div className="sw-stack">
+                    {/* Trip header */}
+                    <div className="sw-trip">
+                      <div className="hd">
+                        <div className="where">
+                          <div style={{ width: 52, height: 52, borderRadius: 13, background: 'var(--bg-soft)', border: '1px solid var(--border)', display: 'grid', placeItems: 'center', color: 'var(--fg-muted)', flexShrink: 0 }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
                           </div>
-                          <div className="detail-moment">
-                            <span className="moment-label">Moment:</span>
-                            <span className="moment-value">{selectedDayItinerary.moment}</span>
-                          </div>
-                          <div className="detail-actions">
-                            <button
-                              className="action-btn"
-                              onClick={() => onRegenerateItinerary(selectedPlannerEvent.id, selectedDayItinerary.id)}
-                            >
-                              Regenerate
-                            </button>
-                            <button
-                              className="action-btn secondary"
-                              onClick={() => openOutfitEditingModal(selectedPlannerEvent.id, selectedDayItinerary, plannerDays[selectedDayIndex], selectedDayIndex)}
-                            >
-                              Edit Outfit
-                            </button>
-                            <button
-                              className="action-btn secondary"
-                              onClick={() => openEditItineraryModal(selectedPlannerEvent.id, selectedDayItinerary)}
-                            >
-                              Edit Details
-                            </button>
-                            <button
-                              className="action-btn danger"
-                              onClick={() => { onDeleteItinerary(selectedPlannerEvent.id, selectedDayItinerary.id); setSelectedDayIndex(null); }}
-                            >
-                              Remove
-                            </button>
+                          <div>
+                            <h3>{selectedPlannerEvent.name}</h3>
+                            <div className="when">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', marginRight: 4 }}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                              {selectedPlannerEvent.location} · {new Date(selectedPlannerEvent.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {new Date(selectedPlannerEvent.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · {plannerDays.length} days
+                            </div>
                           </div>
                         </div>
-                      </>
-                    ) : (
-                      <div className="detail-empty">
-                        <p>No outfit planned for this day</p>
-                        <button 
-                          className="gen-btn"
-                          onClick={() => openOutfitEditingModal(selectedPlannerEvent.id, null, plannerDays[selectedDayIndex], selectedDayIndex, 'plan')}
-                        >
-                          PLAN OUTFIT
-                        </button>
+                        <div style={{ flex: 1 }} />
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <button className="sw-btn accent" onClick={() => handlePackSmart(selectedPlannerEvent.id)} disabled={loading}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                            <span>Pack Smart</span>
+                          </button>
+                          <button className="sw-btn" onClick={() => onGenerateEventOutfits(selectedPlannerEvent.id)} disabled={loading}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            <span>Generate outfits</span>
+                          </button>
+                          <button className="sw-btn ghost" onClick={() => { setEditEventData({ id: selectedPlannerEvent.id, name: selectedPlannerEvent.name, type: selectedPlannerEvent.type, location: selectedPlannerEvent.location, startDate: selectedPlannerEvent.startDate.split('T')[0], endDate: selectedPlannerEvent.endDate.split('T')[0], preferredStyles: selectedPlannerEvent.preferredStyles || [] }); setEditEventModal(true); }}>Edit</button>
+                          <button className="sw-del-btn" title="Archive" onClick={() => { if(confirm('Archive this event?')) onArchiveEvent(selectedPlannerEvent.id); }} disabled={loading}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                          </button>
+                          <button className="sw-del-btn" title="Delete" onClick={() => { if(confirm('Delete this event?')) { onDeletePlannerEvent(selectedPlannerEvent.id); setSelectedPlannerEvent(null); } }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                          </button>
+                        </div>
                       </div>
-                    )}
+
+                      {/* Packing progress */}
+                      {(() => {
+                        const total = plannerDays.length;
+                        const planned = plannerDays.filter(d => d.itinerary).length;
+                        return (
+                          <div className="sw-progress">
+                            <span className="label">Outfits planned</span>
+                            <div className="bar"><span style={{ width: total > 0 ? `${(planned / total) * 100}%` : '0%' }} /></div>
+                            <span className="val">{planned} / {total}</span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Day strip */}
+                      <div className="trip-strip">
+                        {plannerDays.map((day, idx) => {
+                          const items = day.itinerary?.outfit?.items?.slice(0, 4) || [];
+                          return (
+                            <div key={idx} className="td" onClick={() => setSelectedDayIndex(idx)}>
+                              <div className="h">
+                                <span className="wd">{day.date.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</span>
+                                <span className="dn">{day.date.getDate()}</span>
+                                <span style={{ flex: 1 }} />
+                                {day.weather && (
+                                  <span className="cond">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      {/rain/i.test(day.weather.condition) ? <><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="19" x2="8" y2="21"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="16" y1="19" x2="16" y2="21"/><line x1="16" y1="13" x2="16" y2="15"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="12" y1="15" x2="12" y2="17"/></>
+                                      : /cloud/i.test(day.weather.condition) ? <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                                      : <><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></>}
+                                    </svg>
+                                    {Math.round(day.weather.temperature)}°
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mini-out">
+                                {items.length > 0 ? items.map(item => (
+                                  <div key={item.id} className="q">
+                                    <img src={item.processedImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3 }} />
+                                  </div>
+                                )) : (
+                                  <div style={{ gridColumn: '1 / -1', display: 'grid', placeItems: 'center', color: 'var(--fg-muted)', opacity: .5 }}>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 11.5, fontWeight: 500, lineHeight: 1.2 }}>{day.itinerary?.outfit?.name || 'No outfit'}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2256,8 +2267,29 @@ const onUpdateItinerary = async () => {
         mode={outfitEditingData.mode}
         initialMoment={outfitEditingData.moment || ''}
       />
-      </div>
-    </main>
+        </div>
+      </main>
+
+      {/* ===== MOBILE BOTTOM NAV ===== */}
+      <nav className="sw-bottom">
+        <div className="sw-bottom-grid">
+          <button className={`sw-tab${view === 'wardrobe' ? ' is-active' : ''}`} onClick={() => setView('wardrobe')}>
+            <span className="ic">{IC.hanger}</span><span>Wardrobe</span>
+          </button>
+          <button className={`sw-tab${view === 'outfits' ? ' is-active' : ''}`} onClick={() => setView('outfits')}>
+            <span className="ic">{IC.layers}</span><span>Outfits</span>
+          </button>
+          <button className="sw-tab-cta" onClick={() => setView('generate')} aria-label="Generate">
+            {IC.sparkles}
+          </button>
+          <button className={`sw-tab${view === 'planner' ? ' is-active' : ''}`} onClick={() => setView('planner')}>
+            <span className="ic">{IC.calendar}</span><span>Planner</span>
+          </button>
+          <button className={`sw-tab${view === 'stats' ? ' is-active' : ''}`} onClick={() => setView('stats')}>
+            <span className="ic">{IC.chart}</span><span>Stats</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 };

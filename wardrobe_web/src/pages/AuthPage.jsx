@@ -32,14 +32,22 @@ const AuthPage = ({ onLoginSuccess }) => {
   return (
     <div className="auth-fullscreen">
       <div className="auth-card">
-        <h1 className="minimal-logo">WARDROBE</h1>
+        <div className="auth-brand">
+          <div className="mark">W</div>
+          <div className="name">SmartWardrobe</div>
+        </div>
+        <p className="auth-subtitle">{isLogin ? 'sign in to your closet' : 'create your account'}</p>
         <form className="smooth-form" onSubmit={handleAuth}>
-          <input type="email" placeholder="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          <input type="email" placeholder="email address" value={email} onChange={e => setEmail(e.target.value)} required />
           <input type="password" placeholder="password" value={password} onChange={e => setPassword(e.target.value)} required />
           {error && <p className="error-text">{error}</p>}
-          <Button label={isLogin ? 'login' : 'register'} type="submit" loading={loading} />
+          <button className="soft-btn" type="submit" disabled={loading}>
+            {loading ? 'please wait…' : isLogin ? 'sign in' : 'create account'}
+          </button>
         </form>
-        <span className="soft-link" onClick={() => setIsLogin(!isLogin)}>{isLogin ? 'new account' : 'back'}</span>
+        <span className="soft-link" onClick={() => setIsLogin(!isLogin)}>
+          {isLogin ? 'new here? create account' : '← back to sign in'}
+        </span>
       </div>
     </div>
   );
