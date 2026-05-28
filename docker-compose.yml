@@ -1,0 +1,49 @@
+services:
+  postgres-db:
+    image: pgvector/pgvector:pg17
+    container_name: wardrobe-postgres
+    environment:
+      POSTGRES_USER: wardrobe_admin
+      POSTGRES_PASSWORD: wardrobe_pass
+      POSTGRES_DB: wardrobe_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - default
+
+  ml-api:
+    build:
+      context: ./ml_api
+    image: ml-api:latest
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres-db
+    networks:
+      - default
+
+  wardrobe-web:
+    build:
+      context: .
+      dockerfile: src/WardrobeManager/WardrobeManager.API/Dockerfile
+    image: proiect_licenta-wardrobe-web
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres-db;Database=wardrobe_db;Username=wardrobe_admin;Password=wardrobe_pass"
+      FastApi__BaseUrl: "http://ml-api:8000"
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      - postgres-db
+      - ml-api
+    networks:
+      - default
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: proiect_licenta_default

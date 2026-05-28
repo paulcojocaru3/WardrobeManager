@@ -30,4 +30,18 @@ public class UsersController(IMediator mediator) : ControllerBase
         if (user == null) return Unauthorized("wrong credentials");
         return Ok(user);
     }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserCommand command)
+    {
+        try
+        {
+            var updated = await mediator.Send(command with { UserId = id });
+            return Ok(updated);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
 }

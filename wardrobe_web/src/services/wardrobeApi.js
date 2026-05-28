@@ -4,9 +4,11 @@ import { apiClient } from './apiClient';
 export const authApi = {
   login: (payload) => apiClient.post('/users/login', payload),
   register: (payload) => apiClient.post('/users/register', payload),
+  updateUser: (userId, payload) => apiClient.put(`/users/${userId}`, payload),
 };
 
 export const outfitsApi = {
+  parsePrompt: (prompt) => apiClient.post('/outfits/parse-prompt', { prompt }),
   searchCities: (query) => apiClient.get('/outfits/cities/search', { params: { query } }),
   getWeather: (city) => apiClient.get(`/outfits/weather/${city}`),
   getForecast: (city, startDate) => apiClient.get(`/outfits/weather/${city}/forecast`, { params: { startDate } }),

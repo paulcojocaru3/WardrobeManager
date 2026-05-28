@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
@@ -28,15 +29,35 @@ public class MlService(HttpClient httpClient) : IMlService
         return (finalType, finalColor, result?.processed_image_b64, result?.embedding, result?.gender, result?.season, result?.usage);
     }
 
-    private class MlApiResponse 
-    { 
-        public string? type { get; set; } 
-        public string? color { get; set; } 
-        public string? label { get; set; } 
+    public async Task<(string Style, double Confidence, string? City)> ParsePromptAsync(string prompt, CancellationToken ct = default)
+    {
+        var payload = new { prompt };
+        var response = await httpClient.PostAsJsonAsync("parse-prompt", payload, ct);
+        if (!response.IsSuccessStatusCode)
+            return ("Casual", 0, null);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var result = JsonSerializer.Deserialize<PromptParseResponse>(json, options);
+        return (result?.Style ?? "Casual", result?.StyleConfidence ?? 0, result?.City);
+    }
+
+    private class MlApiResponse
+    {
+        public string? type { get; set; }
+        public string? color { get; set; }
+        public string? label { get; set; }
         public string? gender { get; set; }
         public string? season { get; set; }
         public string? usage { get; set; }
-        public string? processed_image_b64 { get; set; } 
+        public string? processed_image_b64 { get; set; }
         public float[]? embedding { get; set; }
+    }
+
+    private class PromptParseResponse
+    {
+        public string? Style { get; set; }
+        public double StyleConfidence { get; set; }
+        public string? City { get; set; }
     }
 }

@@ -83,4 +83,14 @@ public class OutfitsController(IMediator mediator) : ControllerBase
         await mediator.Send(new DeleteOutfitCommand(id));
         return NoContent();
     }
+
+    [HttpPost("parse-prompt")]
+    public async Task<IActionResult> ParsePrompt([FromBody] ParsePromptRequest request)
+    {
+        var mlService = HttpContext.RequestServices.GetRequiredService<IMlService>();
+        var (style, confidence, city) = await mlService.ParsePromptAsync(request.Prompt);
+        return Ok(new { style, styleConfidence = confidence, city });
+    }
+
+    public record ParsePromptRequest(string Prompt);
 }

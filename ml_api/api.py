@@ -3,15 +3,88 @@ import numpy as np
 from io import BytesIO
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
 from rembg import remove
 import base64
 import torch
 import torch.nn.functional as F
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, pipeline as hf_pipeline
 import joblib
 import os
 
 app = FastAPI(title="Fashion AI API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Zero-shot prompt classifier (lazy-loaded on first request) ──────────────
+_zs_classifier = None
+
+def get_zs_classifier():
+    global _zs_classifier
+    if _zs_classifier is None:
+        print("Loading zero-shot classifier (MoritzLaurer/mDeBERTa-v3-base-mnli-xnli)...")
+        _zs_classifier = hf_pipeline(
+            "zero-shot-classification",
+            model="MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+            device=-1,  # CPU
+        )
+        print("Zero-shot classifier ready.")
+    return _zs_classifier
+
+# Descriptive labels so the multilingual model matches semantics, not just words
+STYLE_LABEL_MAP = {
+    "formal elegant outfit for a wedding, ceremony, gala or business meeting": "Formal",
+    "smart casual outfit for office, work, dinner or date":                    "Smart Casual",
+    "casual relaxed outfit for everyday, weekend, park or errands":            "Casual",
+    "party or nightlife outfit for a club, birthday or celebration":           "Party",
+    "sporty athletic outfit for gym, hiking, running or outdoor activity":     "Sports",
+    "comfortable travel outfit for a flight, trip or vacation":                "Travel",
+}
+STYLE_LABELS    = list(STYLE_LABEL_MAP.keys())
+STYLE_HYPOTHESIS = "The person needs {}."
+
+KNOWN_CITIES = [
+    "bucharest", "cluj", "cluj-napoca", "timisoara", "iasi", "constanta", "brasov",
+    "sibiu", "craiova", "galati", "ploiesti", "oradea", "pitesti", "arad", "targu mures",
+    "london", "paris", "berlin", "rome", "madrid", "amsterdam", "vienna", "prague",
+    "budapest", "warsaw", "athens", "lisbon", "barcelona", "milan", "brussels", "zurich",
+    "geneva", "stockholm", "oslo", "copenhagen", "dublin", "edinburgh", "istanbul",
+    "porto", "florence", "venice", "munich", "hamburg", "dubai", "abu dhabi",
+    "new york", "los angeles", "chicago", "toronto", "montreal", "sydney", "melbourne",
+    "singapore", "tokyo", "bangkok", "seoul", "beijing", "shanghai", "mumbai",
+    "miami", "san francisco", "boston", "cape town",
+]
+
+class PromptParseRequest(BaseModel):
+    prompt: str
+
+@app.post("/parse-prompt")
+async def parse_prompt(request: PromptParseRequest):
+    prompt = request.prompt.strip()
+    if not prompt:
+        return {"style": "Casual", "style_confidence": 0.0, "city": None}
+
+    classifier = get_zs_classifier()
+    result = classifier(prompt, candidate_labels=STYLE_LABELS, hypothesis_template=STYLE_HYPOTHESIS)
+    top_label = result["labels"][0]
+    style = STYLE_LABEL_MAP[top_label]
+    confidence = round(float(result["scores"][0]), 3)
+
+    lower = prompt.lower()
+    city: Optional[str] = None
+    for c in KNOWN_CITIES:
+        if c in lower:
+            city = " ".join(w.capitalize() for w in c.split("-" if "-" in c else " "))
+            break
+
+    return {"style": style, "style_confidence": confidence, "city": city}
 
 # Parametri imagine
 UPSCALE_SIZE = (1024, 1024)
