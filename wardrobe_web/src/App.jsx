@@ -36,7 +36,7 @@ function App() {
     <ThemeProvider>
       <div className="app-container">
         {isLoggedIn ? (
-          <DashboardPage user={user} onLogout={handleLogout} />
+          <DashboardPage user={user} onLogout={handleLogout} onUserUpdate={handleLoginSuccess} />
         ) : (
           <AuthPage onLoginSuccess={handleLoginSuccess} />
         )}

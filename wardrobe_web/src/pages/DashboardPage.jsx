@@ -18,8 +18,9 @@ import ValidationModal from '../components/modals/ValidationModal';
 import CitySelectionModal from '../components/modals/CitySelectionModal';
 import OutfitEditingModal from '../components/OutfitEditingModal';
 import StatsSection from '../components/StatsSection';
+import SettingsSection from '../components/SettingsSection';
 import WeatherAlertNotice from '../components/WeatherAlertNotice';
-import { clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
+import { authApi, clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
 import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
 import { getErrorMessage } from '../utils/errors';
 import { toCsv, toTypeIndex } from '../utils/wardrobeTransforms';
@@ -57,6 +58,126 @@ const getDayOffset = (eventStartDate, targetDate) => {
   return Math.max(0, Math.round((target - start) / DAY_IN_MS));
 };
 
+const PROMPT_TAGS = [
+  { group: 'Occasion', items: [
+    { label: 'Office',      text: 'office day, polished' },
+    { label: 'Date night',  text: 'dinner date, elegant' },
+    { label: 'Interview',   text: 'job interview, formal' },
+    { label: 'Park walk',   text: 'walk in the park, casual, comfortable' },
+    { label: 'Brunch',      text: 'brunch with friends, relaxed' },
+    { label: 'Travel',      text: 'travel day, comfortable' },
+    { label: 'Party',       text: 'party, festive look' },
+    { label: 'Night out',   text: 'night out, club, bold' },
+    { label: 'Hiking',      text: 'hiking, outdoor, sporty' },
+    { label: 'Shopping',    text: 'shopping, casual' },
+    { label: 'Concert',     text: 'concert, cool, statement' },
+    { label: 'Sport',       text: 'gym workout, sporty' },
+  ]},
+  { group: 'Style', items: [
+    { label: 'Minimal',     text: 'minimal, clean look' },
+    { label: 'Bold',        text: 'bold, statement piece' },
+    { label: 'Classic',     text: 'classic, timeless' },
+    { label: 'Cozy',        text: 'cozy, comfortable' },
+    { label: 'Chic',        text: 'chic, polished' },
+    { label: 'Streetwear',  text: 'streetwear, urban' },
+  ]},
+  { group: 'Weather', items: [
+    { label: 'Hot',         text: 'hot weather, light fabrics' },
+    { label: 'Mild',        text: 'mild, light layers' },
+    { label: 'Cold',        text: 'cold, warm layers' },
+    { label: 'Rainy',       text: 'rainy day, practical' },
+  ]},
+];
+
+const RECOGNIZERS = [
+  { category: 'occasion', keywords: [
+    'office', 'work', 'meeting', 'interview', 'date', 'dinner', 'party', 'gym', 'sport', 'workout',
+    'travel', 'flight', 'airport', 'beach', 'wedding', 'brunch', 'errands', 'casual friday',
+    'park', 'walk', 'stroll', 'plimbare', 'hiking', 'hike', 'nature', 'outdoor', 'outdoors',
+    'shopping', 'picnic', 'concert', 'festival', 'club', 'night out', 'bar', 'birthday',
+    'conference', 'networking', 'lunch', 'coffee', 'road trip', 'sightseeing', 'museum',
+  ]},
+  { category: 'style', keywords: [
+    'formal', 'smart casual', 'casual', 'elegant', 'minimal', 'classic', 'trendy', 'bold',
+    'cozy', 'relaxed', 'polished', 'chic', 'streetwear', 'sporty', 'edgy', 'preppy',
+    'comfortable', 'professional', 'business', 'artsy', 'urban', 'boho', 'feminine', 'sharp',
+  ]},
+  { category: 'weather', keywords: [
+    'warm', 'hot', 'cold', 'rain', 'rainy', 'sunny', 'winter', 'summer', 'spring', 'autumn',
+    'snow', 'windy', 'layered', 'light fabric', 'heavy', 'freezing', 'mild', 'breezy', 'cloudy',
+  ]},
+  { category: 'type', keywords: [
+    'dress', 'jeans', 'shirt', 'suit', 'jacket', 'coat', 'sneakers', 'heels', 'boots',
+    'trousers', 'skirt', 'blouse', 'sweater', 't-shirt', 'pants', 'shorts', 'hoodie',
+    'cardigan', 'blazer', 'loafers', 'sandals', 'scarf', 'hat', 'cap', 'vest',
+  ]},
+];
+
+// Maps prompt keywords → backend style values (USAGES)
+const STYLE_MAP = [
+  { target: 'Formal',       keywords: [
+    'formal', 'interview', 'business', 'professional', 'conference', 'ceremony',
+    'wedding', 'black tie', 'suit and tie', 'gala', 'nunta', 'cununie', 'botez',
+    'interviu', 'ceremonie', 'eveniment oficial', 'banchet',
+  ]},
+  { target: 'Smart Casual', keywords: [
+    'smart casual', 'office', 'work', 'dinner', 'date', 'restaurant', 'polished',
+    'elegant', 'smart', 'business casual', 'meeting', 'networking', 'lunch',
+    'birou', 'serviciu', 'intalnire', 'întâlnire', 'cina', 'cină',
+  ]},
+  { target: 'Party',        keywords: [
+    'party', 'club', 'festive', 'celebration', 'night out', 'cocktail', 'birthday',
+    'disco', 'bar', 'concert', 'festival',
+    'petrecere', 'aniversare', 'ziua de nastere', 'zi de naștere', 'iesire in club',
+  ]},
+  { target: 'Sports',       keywords: [
+    'sport', 'gym', 'workout', 'fitness', 'running', 'hiking', 'hike', 'training',
+    'athletic', 'outdoor', 'active', 'jogging', 'cycling', 'tennis', 'yoga', 'sporty',
+    'sala', 'sală', 'alergat', 'antrenament', 'drumetie', 'drumeție', 'munte',
+  ]},
+  { target: 'Travel',       keywords: [
+    'travel', 'flight', 'airport', 'trip', 'journey', 'vacation', 'holiday',
+    'road trip', 'sightseeing', 'backpacking',
+    'calatorie', 'călătorie', 'voiaj', 'excursie', 'avion', 'aeroport', 'vacanta', 'vacanță',
+  ]},
+  { target: 'Casual',       keywords: [
+    'casual', 'relaxed', 'everyday', 'errands', 'weekend', 'park', 'coffee', 'brunch',
+    'stroll', 'walk', 'shopping', 'comfy', 'comfortable', 'chill', 'friends', 'picnic', 'museum', 'nature',
+    'plimbare', 'relaxat', 'zilnic', 'parc', 'cafea', 'prieteni', 'cumparaturi', 'cumpărături',
+  ]},
+];
+
+const KNOWN_CITIES = [
+  // Romania
+  'bucharest', 'cluj', 'cluj-napoca', 'timisoara', 'iasi', 'constanta', 'brasov', 'sibiu',
+  'craiova', 'galati', 'ploiesti', 'oradea', 'braila', 'pitesti', 'arad', 'targu mures',
+  // Europe
+  'london', 'paris', 'berlin', 'rome', 'madrid', 'amsterdam', 'vienna', 'prague', 'budapest',
+  'warsaw', 'athens', 'lisbon', 'barcelona', 'milan', 'brussels', 'zurich', 'geneva',
+  'stockholm', 'oslo', 'copenhagen', 'helsinki', 'dublin', 'edinburgh', 'istanbul',
+  'porto', 'seville', 'florence', 'venice', 'munich', 'hamburg', 'cologne', 'lyon',
+  // World
+  'dubai', 'abu dhabi', 'new york', 'los angeles', 'chicago', 'toronto', 'montreal',
+  'sydney', 'melbourne', 'singapore', 'tokyo', 'bangkok', 'seoul', 'beijing', 'shanghai',
+  'mumbai', 'delhi', 'miami', 'san francisco', 'boston', 'seattle', 'cape town',
+];
+
+const parsePrompt = (prompt) => {
+  const lower = prompt.toLowerCase();
+  let style = null;
+  for (const { target, keywords } of STYLE_MAP) {
+    if (keywords.some(kw => lower.includes(kw))) { style = target; break; }
+  }
+  let detectedCity = null;
+  for (const c of KNOWN_CITIES) {
+    if (lower.includes(c)) {
+      detectedCity = c.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      break;
+    }
+  }
+  return { style, city: detectedCity };
+};
+
 const IC = {
   sparkles: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7Z"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9Z"/><path d="M5 16l.6 1.4L7 18l-1.4.6L5 20l-.6-1.4L3 18l1.4-.6Z"/></svg>,
   hanger:   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 7a2 2 0 1 1 2-2"/><path d="M12 7v2.5L3 16h18l-9-6.5"/></svg>,
@@ -67,9 +188,10 @@ const IC = {
   sun:      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>,
   moon:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>,
   logout:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  settings: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
 };
 
-const DashboardPage = ({ user, onLogout }) => {
+const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const [genericForecast, setGenericForecast] = useState([]);
   const [clothes, setClothes] = useState([]);
@@ -326,8 +448,43 @@ const [editItineraryData, setEditItineraryData] = useState({
     [userDisplayName]
   );
 
+  const handleSaveProfile = async (payload) => {
+    const res = await authApi.updateUser(userId, payload);
+    onUserUpdate(res.data);
+  };
+
   const aiOutfitCount = useMemo(() => outfits.filter((outfit) => outfit.isAiGenerated).length, [outfits]);
   const customOutfitCount = useMemo(() => Math.max(outfits.length - aiOutfitCount, 0), [outfits.length, aiOutfitCount]);
+  const appendTag = (text) => {
+    setGeneratePrompt(prev => {
+      const trimmed = prev.trimEnd();
+      if (!trimmed) return text;
+      return trimmed.endsWith(',') ? `${trimmed} ${text}` : `${trimmed}, ${text}`;
+    });
+  };
+
+  const detectedConcepts = useMemo(() => {
+    if (!generatePrompt.trim()) return [];
+    const lower = generatePrompt.toLowerCase();
+    const found = [];
+    const seen = new Set();
+    RECOGNIZERS.forEach(({ category, keywords }) => {
+      keywords.forEach(kw => {
+        if (lower.includes(kw) && !seen.has(kw)) {
+          seen.add(kw);
+          found.push({ category, text: kw });
+        }
+      });
+    });
+    for (const c of KNOWN_CITIES) {
+      if (lower.includes(c)) {
+        found.push({ category: 'city', text: c.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ') });
+        break;
+      }
+    }
+    return found;
+  }, [generatePrompt]);
+
   const weatherSummary = useMemo(
     () => (weatherInfo ? `${Math.round(weatherInfo.temperature)}°C • ${weatherInfo.condition}` : 'updating...'),
     [weatherInfo]
@@ -573,21 +730,39 @@ return () => clearTimeout(timeoutId);
     return () => clearTimeout(timeoutId);
   }, [eventLocationSearch]);
 
-  const onGenerate = (item = null) => {
+  const onGenerate = async (item = null) => {
     if (item) setSelectedItem(item);
     setGenerationContext(item ? 'item' : 'today');
-    setStyleSelectionModal(true);
+    if (!item && generatePrompt.trim()) {
+      let style = 'Casual';
+      let promptCity = null;
+      try {
+        const res = await outfitsApi.parsePrompt(generatePrompt);
+        style = res.data.style || 'Casual';
+        promptCity = res.data.city || null;
+      } catch {
+        const fallback = parsePrompt(generatePrompt);
+        style = fallback.style || 'Casual';
+        promptCity = fallback.city;
+      }
+      executeGeneration(style, promptCity);
+    } else {
+      setStyleSelectionModal(true);
+    }
   };
 
-  const executeGeneration = async (style) => {
+  const executeGeneration = async (style, overrideCity = null) => {
     setStyleSelectionModal(false);
     setLoading(true);
-    
+    const effectiveCity = overrideCity || city;
+
     let startItem = selectedItem;
     if (generationContext === 'today') {
-      const candidates = clothes.filter(c => c.usage?.toLowerCase().includes(style.toLowerCase()));
-      startItem = candidates.length > 0 
-        ? candidates[Math.floor(Math.random() * candidates.length)] 
+      const candidates = style
+        ? clothes.filter(c => c.usage?.toLowerCase().includes(style.toLowerCase()))
+        : clothes;
+      startItem = candidates.length > 0
+        ? candidates[Math.floor(Math.random() * candidates.length)]
         : clothes[Math.floor(Math.random() * clothes.length)];
     }
 
@@ -595,12 +770,12 @@ return () => clearTimeout(timeoutId);
 
     try {
       const { data } = await outfitsApi.generateAi({
-        userId, 
-        startItemId: startItem.id, 
-        threshold: 0.5, 
-        city, 
+        userId,
+        startItemId: startItem.id,
+        threshold: 0.5,
+        city: effectiveCity,
         style,
-        season: weatherInfo?.seasonSuggestion 
+        season: weatherInfo?.seasonSuggestion
       });
       setAiData(data);
       setAiModal(true);
@@ -1434,6 +1609,11 @@ const onUpdateItinerary = async () => {
             <span>Stats</span>
             <span className="badge">{Math.round(usageRate)}%</span>
           </button>
+          <div className="sw-nav-grp">Account</div>
+          <button className={`sw-nav-item${view === 'settings' ? ' is-active' : ''}`} onClick={() => setView('settings')}>
+            <span className="ic">{IC.settings}</span>
+            <span>Settings</span>
+          </button>
         </nav>
 
         <div className="sw-side-foot">
@@ -1456,9 +1636,9 @@ const onUpdateItinerary = async () => {
             SmartWardrobe
           </div>
           <div className="ttl">
-            {view === 'generate' ? 'Generate' : view === 'wardrobe' ? 'Wardrobe' : view === 'outfits' ? 'Outfits' : view === 'planner' ? 'Planner' : 'Stats'}
+            {view === 'generate' ? 'Generate' : view === 'wardrobe' ? 'Wardrobe' : view === 'outfits' ? 'Outfits' : view === 'planner' ? 'Planner' : view === 'settings' ? 'Settings' : 'Stats'}
             <small>
-              {view === 'generate' ? 'AI STYLIST' : view === 'wardrobe' ? `${clothes.length} ITEMS` : view === 'outfits' ? `${outfits.length} SAVED` : view === 'planner' ? `${plannerEvents.length} EVENTS` : 'INSIGHTS'}
+              {view === 'generate' ? 'AI STYLIST' : view === 'wardrobe' ? `${clothes.length} ITEMS` : view === 'outfits' ? `${outfits.length} SAVED` : view === 'planner' ? `${plannerEvents.length} EVENTS` : view === 'settings' ? 'ACCOUNT' : 'INSIGHTS'}
             </small>
           </div>
           <div className="spacer" />
@@ -1527,15 +1707,30 @@ const onUpdateItinerary = async () => {
                   onChange={e => setGeneratePrompt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); } }}
                 />
-                <div className="chips">
-                  {[
-                    { label: 'Office day', value: "A polished outfit for the office, today's weather" },
-                    { label: 'Date night', value: 'Smart casual for a dinner date' },
-                    { label: 'Coffee + errands', value: 'Comfy but put-together for the weekend' },
-                    { label: 'Job interview', value: 'Formal interview outfit, neutral' },
-                    { label: 'Travel day', value: 'Comfortable for a long flight, smart at arrival' },
-                  ].map(c => (
-                    <button key={c.label} className="sw-pill" onClick={() => setGeneratePrompt(c.value)}>{c.label}</button>
+                {detectedConcepts.length > 0 && (
+                  <div className="sw-detected">
+                    <span className="sw-detected-lbl">recognized</span>
+                    {detectedConcepts.map((c, i) => (
+                      <span key={i} className={`sw-detected-badge sw-detected-badge--${c.category}`}>{c.text}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="sw-prompt-tags">
+                  {PROMPT_TAGS.map(group => (
+                    <div key={group.group} className="sw-ptag-group">
+                      <span className="sw-ptag-lbl">{group.group}</span>
+                      <div className="sw-ptag-chips">
+                        {group.items.map(tag => (
+                          <button
+                            key={tag.label}
+                            className={`sw-pill${generatePrompt.toLowerCase().includes(tag.text.split(',')[0].toLowerCase()) ? ' is-active' : ''}`}
+                            onClick={() => appendTag(tag.text)}
+                          >
+                            {tag.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
                 <div className="sw-prompt-foot">
@@ -2040,6 +2235,22 @@ const onUpdateItinerary = async () => {
                 )}
               </div>
             </div>
+          ) : view === 'settings' ? (
+            <SettingsSection
+              userInitials={userInitials}
+              userDisplayName={userDisplayName}
+              userEmail={userEmail}
+              memberSince={memberSince}
+              city={city}
+              onOpenCityModal={() => { setSearchTerm(''); setCityModal(true); }}
+              isDarkMode={isDarkMode}
+              toggleTheme={toggleTheme}
+              onLogout={onLogout}
+              onSaveProfile={handleSaveProfile}
+              clothes={clothes}
+              outfits={outfits}
+              aiOutfitCount={aiOutfitCount}
+            />
           ) : (
             <div className="stats-layout">
               <div className="profile-stats-header">

@@ -13,10 +13,22 @@ public class UserRepository(ApplicationDbContext context) : IUserRepository
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateAsync(User user, CancellationToken ct = default)
+    {
+        context.Users.Update(user);
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
     {
         return await context.Users
             .FirstOrDefaultAsync(u => u.Email == email, ct);
+    }
+
+    public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default)
+    {
+        return await context.Users
+            .FirstOrDefaultAsync(u => u.Username == username, ct);
     }
 
     public async Task<User?> GetByIdAsync(Guid id, CancellationToken ct = default)
