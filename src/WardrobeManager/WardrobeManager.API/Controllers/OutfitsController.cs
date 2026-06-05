@@ -48,6 +48,13 @@ public class OutfitsController(IMediator mediator) : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("generate-from-prompt")]
+    public async Task<IActionResult> GenerateFromPrompt([FromBody] GenerateOutfitFromPromptCommand command)
+    {
+        var result = await mediator.Send(command);
+        return Ok(result);
+    }
+
     [HttpPost]
     public async Task<IActionResult> CreateOutfit([FromBody] CreateOutfitCommand command)
     {

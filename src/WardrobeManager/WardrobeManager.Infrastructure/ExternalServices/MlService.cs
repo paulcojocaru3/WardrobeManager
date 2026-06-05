@@ -42,6 +42,23 @@ public class MlService(HttpClient httpClient) : IMlService
         return (result?.Style ?? "Casual", result?.StyleConfidence ?? 0, result?.City);
     }
 
+    public async Task<float[]> EmbedTextAsync(string text, CancellationToken ct = default)
+    {
+        var payload = new { text };
+        var response = await httpClient.PostAsJsonAsync("embed-text", payload, ct);
+        if (!response.IsSuccessStatusCode) return Array.Empty<float>();
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var result = JsonSerializer.Deserialize<EmbedTextResponse>(json, options);
+        return result?.embedding ?? Array.Empty<float>();
+    }
+
+    private class EmbedTextResponse
+    {
+        public float[]? embedding { get; set; }
+    }
+
     private class MlApiResponse
     {
         public string? type { get; set; }

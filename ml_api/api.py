@@ -178,6 +178,24 @@ async def process_clothing(file: UploadFile = File(...)):
         "embedding": embedding
     }
 
+class EmbedTextRequest(BaseModel):
+    text: str
+
+@app.post("/embed-text")
+async def embed_text(request: EmbedTextRequest):
+    text = (request.text or "").strip()
+    if not text:
+        return {"embedding": []}
+
+    with torch.no_grad():
+        inputs = clip_processor(text=[text], return_tensors="pt", padding=True).to(device)
+        raw_outputs = clip_model.get_text_features(**inputs)
+        feats = extract_tensor(raw_outputs)
+        feats = F.normalize(feats, p=2, dim=-1)
+        embedding = feats.cpu().numpy().tolist()[0]
+
+    return {"embedding": embedding}
+
 @app.get("/health")
 async def health():
     return {"status": "ready", "model": CLIP_MODEL_NAME}

@@ -58,35 +58,28 @@ const getDayOffset = (eventStartDate, targetDate) => {
   return Math.max(0, Math.round((target - start) / DAY_IN_MS));
 };
 
-const PROMPT_TAGS = [
-  { group: 'Occasion', items: [
-    { label: 'Office',      text: 'office day, polished' },
-    { label: 'Date night',  text: 'dinner date, elegant' },
-    { label: 'Interview',   text: 'job interview, formal' },
-    { label: 'Park walk',   text: 'walk in the park, casual, comfortable' },
-    { label: 'Brunch',      text: 'brunch with friends, relaxed' },
-    { label: 'Travel',      text: 'travel day, comfortable' },
-    { label: 'Party',       text: 'party, festive look' },
-    { label: 'Night out',   text: 'night out, club, bold' },
-    { label: 'Hiking',      text: 'hiking, outdoor, sporty' },
-    { label: 'Shopping',    text: 'shopping, casual' },
-    { label: 'Concert',     text: 'concert, cool, statement' },
-    { label: 'Sport',       text: 'gym workout, sporty' },
-  ]},
-  { group: 'Style', items: [
-    { label: 'Minimal',     text: 'minimal, clean look' },
-    { label: 'Bold',        text: 'bold, statement piece' },
-    { label: 'Classic',     text: 'classic, timeless' },
-    { label: 'Cozy',        text: 'cozy, comfortable' },
-    { label: 'Chic',        text: 'chic, polished' },
-    { label: 'Streetwear',  text: 'streetwear, urban' },
-  ]},
-  { group: 'Weather', items: [
-    { label: 'Hot',         text: 'hot weather, light fabrics' },
-    { label: 'Mild',        text: 'mild, light layers' },
-    { label: 'Cold',        text: 'cold, warm layers' },
-    { label: 'Rainy',       text: 'rainy day, practical' },
-  ]},
+// Occasion chips: each label maps to a keyword the backend OccasionClassifier
+// recognizes deterministically. Selecting one drives the style; it does NOT write
+// into the textarea (which is kept for free-text details only).
+const OCCASION_CHIPS = [
+  { label: 'Office',    kw: 'office' },
+  { label: 'Meeting',   kw: 'business meeting' },
+  { label: 'Interview', kw: 'job interview' },
+  { label: 'Dinner',    kw: 'dinner' },
+  { label: 'Date',      kw: 'dinner date' },
+  { label: 'Party',     kw: 'party' },
+  { label: 'Club',      kw: 'club' },
+  { label: 'Birthday',  kw: 'birthday' },
+  { label: 'Gym',       kw: 'gym workout' },
+  { label: 'Running',   kw: 'running' },
+  { label: 'Hiking',    kw: 'hiking' },
+  { label: 'Wedding',   kw: 'wedding' },
+  { label: 'Ceremony',  kw: 'ceremony' },
+  { label: 'Travel',    kw: 'travel' },
+  { label: 'Beach',     kw: 'beach' },
+  { label: 'Coffee',    kw: 'coffee with friends' },
+  { label: 'Walk',      kw: 'walk in the park' },
+  { label: 'Casual',    kw: 'everyday' },
 ];
 
 const RECOGNIZERS = [
@@ -202,6 +195,7 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const [wardrobeTypeFilter, setWardrobeTypeFilter] = useState('ALL');
   const [wardrobeTagFilter, setWardrobeTagFilter] = useState(null);
   const [generatePrompt, setGeneratePrompt] = useState('');
+  const [selectedOccasion, setSelectedOccasion] = useState(null);
   const [plannerEvents, setPlannerEvents] = useState([]);
   const [usageRate, setUsageRate] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -364,6 +358,7 @@ const [editItineraryData, setEditItineraryData] = useState({
 
   const [aiModal, setAiModal] = useState(false);
   const [aiData, setAiData] = useState(null);
+  const [aiIntent, setAiIntent] = useState(null);
   
   // Custom Outfit State
   const [customOutfitModal, setCustomOutfitModal] = useState(false);
@@ -455,14 +450,6 @@ const [editItineraryData, setEditItineraryData] = useState({
 
   const aiOutfitCount = useMemo(() => outfits.filter((outfit) => outfit.isAiGenerated).length, [outfits]);
   const customOutfitCount = useMemo(() => Math.max(outfits.length - aiOutfitCount, 0), [outfits.length, aiOutfitCount]);
-  const appendTag = (text) => {
-    setGeneratePrompt(prev => {
-      const trimmed = prev.trimEnd();
-      if (!trimmed) return text;
-      return trimmed.endsWith(',') ? `${trimmed} ${text}` : `${trimmed}, ${text}`;
-    });
-  };
-
   const detectedConcepts = useMemo(() => {
     if (!generatePrompt.trim()) return [];
     const lower = generatePrompt.toLowerCase();
@@ -733,19 +720,25 @@ return () => clearTimeout(timeoutId);
   const onGenerate = async (item = null) => {
     if (item) setSelectedItem(item);
     setGenerationContext(item ? 'item' : 'today');
-    if (!item && generatePrompt.trim()) {
-      let style = 'Casual';
-      let promptCity = null;
+    // Occasion (chip, deterministic style) + free-text details are combined here;
+    // the textarea itself stays clean.
+    const promptText = [selectedOccasion, generatePrompt.trim()].filter(Boolean).join('. ');
+    if (!item && promptText) {
+      setLoading(true);
       try {
-        const res = await outfitsApi.parsePrompt(generatePrompt);
-        style = res.data.style || 'Casual';
-        promptCity = res.data.city || null;
-      } catch {
-        const fallback = parsePrompt(generatePrompt);
-        style = fallback.style || 'Casual';
-        promptCity = fallback.city;
+        const { data } = await outfitsApi.generateFromPrompt({
+          userId,
+          prompt: promptText,
+          threshold: 0.5,
+        });
+        setAiData(data.outfit);
+        setAiIntent(data.intent);
+        setAiModal(true);
+      } catch (err) {
+        handleApiAlert(err, 'Generation failed');
+      } finally {
+        setLoading(false);
       }
-      executeGeneration(style, promptCity);
     } else {
       setStyleSelectionModal(true);
     }
@@ -778,6 +771,7 @@ return () => clearTimeout(timeoutId);
         season: weatherInfo?.seasonSuggestion
       });
       setAiData(data);
+      setAiIntent(null);
       setAiModal(true);
     } catch (err) {
       handleApiAlert(err, 'Generation failed');
@@ -1701,8 +1695,22 @@ const onUpdateItinerary = async () => {
               </div>
 
               <div className="sw-prompt">
+                <div className="sw-occasions">
+                  <span className="sw-occasions-lbl">What&apos;s the occasion?</span>
+                  <div className="sw-ptag-chips">
+                    {OCCASION_CHIPS.map(o => (
+                      <button
+                        key={o.kw}
+                        className={`sw-pill${selectedOccasion === o.kw ? ' is-active' : ''}`}
+                        onClick={() => setSelectedOccasion(prev => (prev === o.kw ? null : o.kw))}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <textarea
-                  placeholder="e.g. Office meeting in the morning, then dinner with friends — want to look polished but comfortable…"
+                  placeholder="Optional details — a specific item, colors, the city… e.g. with my white shirt, no red, in Cluj"
                   value={generatePrompt}
                   onChange={e => setGeneratePrompt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); } }}
@@ -1715,24 +1723,6 @@ const onUpdateItinerary = async () => {
                     ))}
                   </div>
                 )}
-                <div className="sw-prompt-tags">
-                  {PROMPT_TAGS.map(group => (
-                    <div key={group.group} className="sw-ptag-group">
-                      <span className="sw-ptag-lbl">{group.group}</span>
-                      <div className="sw-ptag-chips">
-                        {group.items.map(tag => (
-                          <button
-                            key={tag.label}
-                            className={`sw-pill${generatePrompt.toLowerCase().includes(tag.text.split(',')[0].toLowerCase()) ? ' is-active' : ''}`}
-                            onClick={() => appendTag(tag.text)}
-                          >
-                            {tag.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
                 <div className="sw-prompt-foot">
                   <span className="sw-label-mono">click generate or press ⌘↵</span>
                   <div style={{ flex: 1 }} />
@@ -2347,13 +2337,14 @@ const onUpdateItinerary = async () => {
         executeGeneration={executeGeneration} 
       />
 
-      <AiSuggestionModal 
-        isOpen={aiModal} 
-        onClose={() => setAiModal(false)} 
-        aiData={aiData} 
-        setAiData={setAiData} 
-        onSaveAiOutfit={onSaveAiOutfit} 
-        loading={loading} 
+      <AiSuggestionModal
+        isOpen={aiModal}
+        onClose={() => { setAiModal(false); setAiIntent(null); }}
+        aiData={aiData}
+        setAiData={setAiData}
+        intent={aiIntent}
+        onSaveAiOutfit={onSaveAiOutfit}
+        loading={loading}
       />
 
       <ValidationModal 

@@ -18,11 +18,12 @@ public class OutfitGenerator : IOutfitGenerator
         {
             new WeatherEvaluator(),
             new StyleEvaluator(),
-            new ColorHarmonyEvaluator()
+            new ColorHarmonyEvaluator(),
+            new ColorPreferenceEvaluator()
         };
     }
 
-    public async Task<AiGeneratedOutfitDto> GenerateAiOutfitAsync(Guid userId, Guid startItemId, double threshold = 0.5, WeatherData? weatherData = null, string? style = null, CancellationToken ct = default)
+    public async Task<AiGeneratedOutfitDto> GenerateAiOutfitAsync(Guid userId, Guid startItemId, double threshold = 0.5, WeatherData? weatherData = null, string? style = null, IReadOnlyList<string>? desiredColors = null, IReadOnlyList<string>? avoidColors = null, string? occasion = null, CancellationToken ct = default)
     {
         var startItem = await _clothingRepository.GetByIdAsync(startItemId, ct);
         
@@ -43,6 +44,9 @@ public class OutfitGenerator : IOutfitGenerator
         {
             Weather = weatherData,
             TargetStyle = style,
+            DesiredColors = desiredColors ?? new List<string>(),
+            AvoidColors = avoidColors ?? new List<string>(),
+            Occasion = occasion,
             SelectedItems = { startItem }
         };
 
