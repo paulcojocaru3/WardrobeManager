@@ -14,6 +14,7 @@ export const outfitsApi = {
   getForecast: (city, startDate) => apiClient.get(`/outfits/weather/${city}/forecast`, { params: { startDate } }),
   getByUser: (userId) => apiClient.get(`/outfits/user/${userId}`),
   generateAi: (payload) => apiClient.post('/outfits/generate-ai', payload),
+  generateFromPrompt: (payload) => apiClient.post('/outfits/generate-from-prompt', payload),
   create: (payload) => apiClient.post('/outfits', payload),
   update: (id, payload) => apiClient.put(`/outfits/${id}`, payload),
   toggleFavorite: (id) => apiClient.put(`/outfits/${id}/favorite`),

@@ -54,12 +54,27 @@ builder.Services.AddScoped<IPlannerEventRepository, WardrobeManager.Infrastructu
 builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();
 builder.Services.AddScoped<IEventOutfitPlanningService, WardrobeManager.Application.PlannedOutfits.EventOutfitPlanningService>();
 builder.Services.AddScoped<IWeatherService, WardrobeManager.Infrastructure.ExternalServices.WeatherService>();
+builder.Services.AddScoped<IStartItemSelector, WardrobeManager.Application.Outfits.Prompting.StartItemSelector>();
+
+// Deterministic occasion -> style map (primary style signal; LLM is fallback).
+var occasionMapPath = Path.Combine(builder.Environment.ContentRootPath, "Data", "occasion-style-map.json");
+builder.Services.AddSingleton<IOccasionClassifier>(
+    new WardrobeManager.Infrastructure.ExternalServices.OccasionClassifier(occasionMapPath));
 
 // Register extern
 builder.Services.AddHttpClient<IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
 {
     var mlUrl = builder.Configuration["FastApi:BaseUrl"] ?? builder.Configuration["ExternalServices:MlApiUrl"];
     client.BaseAddress = new Uri(mlUrl ?? "http://localhost:8000");
+});
+
+// Ollama LLM for prompt understanding
+builder.Services.AddHttpClient<IPromptIntentService, WardrobeManager.Infrastructure.ExternalServices.OllamaPromptIntentService>(client =>
+{
+    var ollamaUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
+    client.BaseAddress = new Uri(ollamaUrl.TrimEnd('/') + "/");
+    var timeoutSeconds = builder.Configuration.GetValue<int?>("Ollama:TimeoutSeconds") ?? 60;
+    client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
 });
 
 var app = builder.Build();

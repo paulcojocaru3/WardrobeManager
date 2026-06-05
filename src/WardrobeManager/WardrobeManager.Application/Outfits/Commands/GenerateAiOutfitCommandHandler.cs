@@ -20,6 +20,6 @@ public class GenerateAiOutfitCommandHandler(
             weather = await weatherService.GetCurrentWeatherAsync(request.City, ct);
         }
 
-        return await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, request.Threshold, weather, request.Style, ct);
+        return await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, request.Threshold, weather, request.Style, ct: ct);
     }
 }

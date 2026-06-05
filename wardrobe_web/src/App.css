@@ -1066,6 +1066,12 @@ input::placeholder { color: var(--fg-muted); }
 }
 .sw-ptag-chips  { display: flex; flex-wrap: wrap; gap: 6px; }
 
+.sw-occasions { display: flex; flex-direction: column; gap: 8px; }
+.sw-occasions-lbl {
+  font-family: var(--sw-font-mono); font-size: 9.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fg-muted);
+}
+
 .sw-week-section { display: flex; flex-direction: column; gap: 14px; }
 
 /* ========== WARDROBE SCREEN ========== */
