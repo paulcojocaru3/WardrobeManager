@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Clothing.Queries;
 using WardrobeManager.Application.Outfits.Queries;
@@ -10,15 +11,17 @@ public record GetPlannerEventsResult(IEnumerable<PlannerEventDto> PlannerEvents,
 
 public record GetPlannerEventsQuery(Guid UserId) : IRequest<GetPlannerEventsResult>;
 
-public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuery, GetPlannerEventsResult>
+public sealed class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuery, GetPlannerEventsResult>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IWeatherService _weatherService;
+    private readonly ILogger<GetPlannerEventsQueryHandler> _logger;
 
-    public GetPlannerEventsQueryHandler(IPlannerEventRepository plannerEventRepository, IWeatherService weatherService)
+    public GetPlannerEventsQueryHandler(IPlannerEventRepository plannerEventRepository, IWeatherService weatherService, ILogger<GetPlannerEventsQueryHandler> logger)
     {
         _plannerEventRepository = plannerEventRepository;
         _weatherService = weatherService;
+        _logger = logger;
     }
 
     public async Task<GetPlannerEventsResult> Handle(GetPlannerEventsQuery request, CancellationToken cancellationToken)
@@ -26,7 +29,6 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
         var plannerEvents = (await _plannerEventRepository.GetByUserIdAsync(request.UserId, cancellationToken)).ToList();
 
         var now = DateTime.UtcNow;
-        bool hasChanges = false;
 
         foreach (var plannerEvent in plannerEvents.ToList())
         {
@@ -35,16 +37,12 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
             {
                 plannerEvent.Status = "Archived";
                 plannerEvent.ArchivedAt = now;
-                await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);
-                hasChanges = true;
-            }
+                await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);            }
             // Auto-delete if Archived more than 30 days ago
             else if (plannerEvent.Status == "Archived" && plannerEvent.ArchivedAt.HasValue && (now - plannerEvent.ArchivedAt.Value).TotalDays > 30)
             {
                 await _plannerEventRepository.DeleteAsync(plannerEvent, cancellationToken);
-                plannerEvents.Remove(plannerEvent);
-                hasChanges = true;
-            }
+                plannerEvents.Remove(plannerEvent);            }
         }
 
         // Filter to return only active events
@@ -79,6 +77,7 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
                         item.Id,
                         item.Name,
                         item.Type,
+                        item.SubType,
                         item.Color,
                         item.Gender,
                         item.Season,
@@ -129,9 +128,9 @@ public class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEventsQuer
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Ignore weather fetch errors
+                _logger.LogWarning(ex, "Weather drift check failed; skipping alert.");
             }
         }
 

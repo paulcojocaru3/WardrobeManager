@@ -1,33 +1,50 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Modal from '../Modal';
-import { CLOTHING_TYPES, COLORS, GENDERS, SEASONS, USAGES } from '../../constants/wardrobe';
+import { CLOTHING_TYPES, SEASONS, USAGES } from '../../constants/wardrobe';
+import { colorToHex, COLOR_HEX } from '../../constants/colors';
 import { toStringArray } from '../../utils/wardrobeTransforms';
+
+const COLOR_NAMES = Object.keys(COLOR_HEX);
+
+// Swatch style for one color name: resolved hex, or a neutral ring when unknown.
+const dotStyle = (name) => {
+  const hex = colorToHex(name);
+  return hex
+    ? { background: hex }
+    : { background: 'transparent', boxShadow: 'inset 0 0 0 1px var(--border-muted, #999)' };
+};
 
 const ItemInspectModal = ({
   isOpen, onClose,
   selectedItem, editItemMode, setEditItemMode,
   editItemData, setEditItemData,
+  subtypeOptions = {},
   onUpdateItem, onGenerate, loading
 }) => {
+  const [colorSearch, setColorSearch] = useState('');
   if (!selectedItem) return null;
 
   const typeStr = typeof selectedItem.type === 'number'
     ? CLOTHING_TYPES[selectedItem.type]
     : selectedItem.type;
 
+  // Sub-type options for the type currently chosen in the edit form (live ML vocabulary).
+  const editTypeName = editItemData
+    ? (typeof editItemData.type === 'number' ? CLOTHING_TYPES[editItemData.type] : editItemData.type)
+    : null;
+  const baseSubOptions = (editTypeName && subtypeOptions[editTypeName]) || [];
+  // Keep the current value selectable even if it isn't in the model's list for this type.
+  const subOptions = editItemData?.subType && !baseSubOptions.includes(editItemData.subType)
+    ? [editItemData.subType, ...baseSubOptions]
+    : baseSubOptions;
+
   const usageTags = (selectedItem.usage || 'Casual')
     .split(',').map(u => u.trim()).filter(Boolean);
 
   const seasonStr = selectedItem.season || 'Any';
 
-  const colorHex = {
-    black: '#111', white: '#f5f5f5', red: '#e05a5a', blue: '#4f8ef7',
-    green: '#4caf7d', yellow: '#f5c842', purple: '#a855f7', pink: '#f472b6',
-    orange: '#f97316', brown: '#92400e', grey: '#6b7280', gray: '#6b7280',
-    navy: '#1e3a5f', beige: '#d4b896',
-  };
-  const colorKey = (selectedItem.color || '').toLowerCase().split(' ')[0];
-  const swatchColor = colorHex[colorKey];
+  // A garment can have several colors (CSV like Season/Usage).
+  const colorList = toStringArray(selectedItem.color);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="large">
@@ -46,13 +63,11 @@ const ItemInspectModal = ({
             <div className="iim-img-chip">
               <span className="iim-chip-lbl">Color</span>
               <span className="iim-chip-val iim-chip-color">
-                {swatchColor && <span className="iim-color-dot" style={{ background: swatchColor }} />}
+                {colorList.length > 0
+                  ? colorList.map(c => <span key={c} className="iim-color-dot" style={dotStyle(c)} title={c} />)
+                  : <span className="iim-color-dot" style={dotStyle(null)} />}
                 {selectedItem.color || '—'}
               </span>
-            </div>
-            <div className="iim-img-chip">
-              <span className="iim-chip-lbl">Gender</span>
-              <span className="iim-chip-val">{selectedItem.gender || 'Unisex'}</span>
             </div>
           </div>
         </div>
@@ -67,8 +82,6 @@ const ItemInspectModal = ({
             </div>
             <span className="iim-sub">
               {selectedItem.color ? selectedItem.color : ''}
-              {selectedItem.color && selectedItem.gender ? ' · ' : ''}
-              {selectedItem.gender || ''}
             </span>
           </div>
 
@@ -98,23 +111,64 @@ const ItemInspectModal = ({
                 </div>
 
                 <div className="iim-field">
-                  <label className="iim-field-label">Color</label>
+                  <label className="iim-field-label">Sub-type</label>
                   <select
-                    value={editItemData.color}
-                    onChange={e => setEditItemData({ ...editItemData, color: e.target.value })}
+                    value={editItemData.subType || ''}
+                    onChange={e => setEditItemData({ ...editItemData, subType: e.target.value || null })}
+                    style={{ textTransform: 'capitalize' }}
                   >
-                    {COLORS.map(c => <option key={c}>{c}</option>)}
+                    <option value="">—</option>
+                    {subOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
 
                 <div className="iim-field full">
-                  <label className="iim-field-label">Gender</label>
-                  <select
-                    value={editItemData.gender}
-                    onChange={e => setEditItemData({ ...editItemData, gender: e.target.value })}
-                  >
-                    {GENDERS.map(g => <option key={g}>{g}</option>)}
-                  </select>
+                  <label className="iim-field-label">Colors</label>
+
+                  {/* Currently selected — always visible, click × to remove. */}
+                  {editItemData.color.length > 0 && (
+                    <div className="iim-toggle-group" style={{ marginBottom: '8px' }}>
+                      {editItemData.color.map(c => (
+                        <button
+                          key={c}
+                          type="button"
+                          className="iim-toggle on"
+                          onClick={() => setEditItemData({ ...editItemData, color: editItemData.color.filter(x => x !== c) })}
+                        >
+                          <span className="iim-color-dot" style={{ ...dotStyle(c), marginRight: 6 }} />
+                          {c} ×
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <input
+                    value={colorSearch}
+                    onChange={e => setColorSearch(e.target.value)}
+                    placeholder="search to add a color…"
+                  />
+
+                  {/* Options appear only while searching, so the modal stays compact. */}
+                  {colorSearch.trim() && (
+                    <div className="iim-toggle-group" style={{ marginTop: '8px' }}>
+                      {COLOR_NAMES
+                        .filter(n => !editItemData.color.includes(n) && n.toLowerCase().includes(colorSearch.trim().toLowerCase()))
+                        .map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            className="iim-toggle"
+                            onClick={() => {
+                              setEditItemData({ ...editItemData, color: [...editItemData.color, n] });
+                              setColorSearch('');
+                            }}
+                          >
+                            <span className="iim-color-dot" style={{ ...dotStyle(n), marginRight: 6 }} />
+                            {n}
+                          </button>
+                        ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="iim-field full">
@@ -122,14 +176,21 @@ const ItemInspectModal = ({
                   <div className="iim-toggle-group">
                     {SEASONS.map(s => {
                       const on = editItemData.season.includes(s);
+                      const isAll = s === 'All Seasons';
                       return (
                         <button
                           key={s}
                           className={`iim-toggle${on ? ' on' : ''}`}
                           onClick={() => {
-                            const next = on
-                              ? editItemData.season.filter(x => x !== s)
-                              : [...editItemData.season, s];
+                            let next;
+                            if (isAll) {
+                              // "All Seasons" is exclusive: selecting it clears the rest.
+                              next = on ? [] : ['All Seasons'];
+                            } else {
+                              next = on
+                                ? editItemData.season.filter(x => x !== s)
+                                : [...editItemData.season.filter(x => x !== 'All Seasons'), s];
+                            }
                             setEditItemData({ ...editItemData, season: next });
                           }}
                         >{s}</button>
@@ -185,24 +246,26 @@ const ItemInspectModal = ({
 
                 <div className="iim-attr-card">
                   <span className="iim-attr-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="8"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
                   </span>
                   <div className="iim-attr-content">
-                    <span className="iim-attr-label">Color</span>
-                    <span className="iim-attr-value iim-chip-color">
-                      {swatchColor && <span className="iim-color-dot" style={{ background: swatchColor }} />}
-                      {selectedItem.color || '—'}
-                    </span>
+                    <span className="iim-attr-label">Sub-type</span>
+                    <span className="iim-attr-value" style={{ textTransform: 'capitalize' }}>{selectedItem.subType || '—'}</span>
                   </div>
                 </div>
 
                 <div className="iim-attr-card">
                   <span className="iim-attr-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="8"/></svg>
                   </span>
                   <div className="iim-attr-content">
-                    <span className="iim-attr-label">Gender</span>
-                    <span className="iim-attr-value">{selectedItem.gender || 'Unisex'}</span>
+                    <span className="iim-attr-label">Color</span>
+                    <span className="iim-attr-value iim-chip-color">
+                      {colorList.length > 0
+                        ? colorList.map(c => <span key={c} className="iim-color-dot" style={dotStyle(c)} title={c} />)
+                        : <span className="iim-color-dot" style={dotStyle(null)} />}
+                      {selectedItem.color || '—'}
+                    </span>
                   </div>
                 </div>
 
@@ -259,6 +322,7 @@ const ItemInspectModal = ({
                   onClick={() => {
                     setEditItemData({
                       ...selectedItem,
+                      color: toStringArray(selectedItem.color),
                       season: toStringArray(selectedItem.season),
                       usage: toStringArray(selectedItem.usage),
                     });

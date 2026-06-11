@@ -11,6 +11,7 @@ import base64
 import torch
 import torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel, pipeline as hf_pipeline
+from sklearn.linear_model import LogisticRegression
 import joblib
 import os
 
@@ -103,9 +104,10 @@ gender_model = joblib.load(os.path.join(MODELS_DIR, "gender_fashion_model.joblib
 season_model = joblib.load(os.path.join(MODELS_DIR, "season_fashion_model.joblib"))
 usage_model = joblib.load(os.path.join(MODELS_DIR, "usage_fashion_model.joblib"))
 
-# Incarcare culori pentru Zero-Shot
+# Incarcare culori pentru Zero-Shot: taxonomie {main: {hex, shades}} -> lista plata de nume.
 with open("colors.json", "r") as f:
-    COLORS = json.load(f)
+    _color_groups = json.load(f)
+COLORS = [name for main, group in _color_groups.items() for name in (main, *group["shades"].keys())]
 
 COLOR_PROMPTS = [f"a photo of a {c} colored clothing item" for c in COLORS]
 
@@ -195,6 +197,67 @@ async def embed_text(request: EmbedTextRequest):
         embedding = feats.cpu().numpy().tolist()[0]
 
     return {"embedding": embedding}
+
+class PredictArticleTypesRequest(BaseModel):
+    embeddings: list  # list of CLIP embedding vectors (already stored per item)
+
+@app.post("/predict-article-types")
+async def predict_article_types(request: PredictArticleTypesRequest):
+    # Backfill helper: derive the fine article type from stored embeddings (no image needed).
+    if not request.embeddings:
+        return {"types": []}
+    emb_np = np.array(request.embeddings)
+    preds = article_type_model.predict(emb_np)
+    return {"types": [str(p) for p in preds]}
+
+@app.get("/article-types")
+async def article_types():
+    # The full article-type vocabulary the model can output (source of truth for the UI dropdown).
+    return {"types": [str(c) for c in article_type_model.classes_]}
+
+# ── Per-user evaluator weight learning ──────────────────────────────────────
+class TrainSample(BaseModel):
+    features: dict        # evaluator name -> normalized score (subset; missing = abstained)
+    label: int            # 1 = positive (accepted/worn/favorited), 0 = rejected
+
+class TrainWeightsRequest(BaseModel):
+    feature_names: list
+    default_weights: dict
+    samples: list[TrainSample]
+
+@app.post("/train/weights")
+async def train_weights(req: TrainWeightsRequest):
+    names = req.feature_names
+    defaults = req.default_weights
+    n = len(req.samples)
+
+    # Impute abstained features to a neutral 0.5 so every row is the same length.
+    X = np.array([[s.features.get(k, 0.5) for k in names] for s in req.samples], dtype=float)
+    y = np.array([s.label for s in req.samples], dtype=int)
+
+    # Need both classes to fit; otherwise hand back the defaults unchanged.
+    if n == 0 or len(set(y.tolist())) < 2:
+        return {"weights": {k: defaults.get(k, 0.0) for k in names}, "n_samples": n}
+
+    model = LogisticRegression(C=1.0, max_iter=1000)
+    model.fit(X, y)
+    coefs = model.coef_[0]
+
+    # Keep only positive importances and rescale to the defaults' total mass (interpretable).
+    pos = np.clip(coefs, 0.0, None)
+    default_total = sum(defaults.get(k, 0.0) for k in names)
+    if pos.sum() <= 1e-9:
+        learned = {k: defaults.get(k, 0.0) for k in names}
+    else:
+        scale = default_total / pos.sum()
+        learned = {k: float(pos[i] * scale) for i, k in enumerate(names)}
+
+    # Shrink-to-prior: trust the learned weights more as samples accumulate (k=20).
+    k = 20.0
+    alpha = n / (n + k)
+    blended = {key: alpha * learned[key] + (1.0 - alpha) * defaults.get(key, 0.0) for key in names}
+
+    return {"weights": blended, "n_samples": n}
 
 @app.get("/health")
 async def health():

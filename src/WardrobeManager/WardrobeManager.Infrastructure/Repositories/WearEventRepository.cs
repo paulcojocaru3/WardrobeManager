@@ -5,7 +5,7 @@ using WardrobeManager.Infrastructure.Persistance;
 
 namespace WardrobeManager.Infrastructure.Repositories;
 
-public class WearEventRepository : IWearEventRepository
+public sealed class WearEventRepository : IWearEventRepository
 {
     private readonly ApplicationDbContext _context;
 
@@ -14,28 +14,34 @@ public class WearEventRepository : IWearEventRepository
         _context = context;
     }
 
-    public async Task AddAsync(WearEvent wearEvent)
+    public async Task AddAsync(WearEvent wearEvent, CancellationToken ct = default)
     {
-        await _context.WearEvents.AddAsync(wearEvent);
-        await _context.SaveChangesAsync();
+        await _context.WearEvents.AddAsync(wearEvent, ct);
+        await _context.SaveChangesAsync(ct);
     }
 
-    public async Task<IEnumerable<WearEvent>> GetByUserIdAsync(Guid userId, DateTime startDate, DateTime endDate)
+    public async Task AddRangeAsync(IEnumerable<WearEvent> wearEvents, CancellationToken ct = default)
+    {
+        await _context.WearEvents.AddRangeAsync(wearEvents, ct);
+        await _context.SaveChangesAsync(ct);
+    }
+
+    public async Task<IEnumerable<WearEvent>> GetByUserIdAsync(Guid userId, DateTime startDate, DateTime endDate, CancellationToken ct = default)
     {
         return await _context.WearEvents
             .AsNoTracking()
             .Where(w => w.UserId == userId && w.WearDate >= startDate && w.WearDate <= endDate)
             .Include(w => w.ClothingItem)
             .OrderByDescending(w => w.WearDate)
-            .ToListAsync();
+            .ToListAsync(ct);
     }
 
-    public async Task<IEnumerable<WearEvent>> GetAllByUserIdAsync(Guid userId)
+    public async Task<IEnumerable<WearEvent>> GetAllByUserIdAsync(Guid userId, CancellationToken ct = default)
     {
         return await _context.WearEvents
             .AsNoTracking()
             .Where(w => w.UserId == userId)
             .Include(w => w.ClothingItem)
-            .ToListAsync();
+            .ToListAsync(ct);
     }
 }

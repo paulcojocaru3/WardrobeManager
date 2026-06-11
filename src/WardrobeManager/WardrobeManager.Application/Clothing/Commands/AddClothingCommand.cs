@@ -8,6 +8,7 @@ public record AddClothingCommand(
     Guid UserId,
     string Name,
     ClothingType Type,
+    string? SubType,
     string? Color,
     string? Gender,
     string? Season,

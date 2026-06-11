@@ -1,12 +1,15 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
+using WardrobeManager.Application.Outfits.Generation;
+using WardrobeManager.Application.Outfits.Prompting;
 using WardrobeManager.Application.Outfits.Queries;
 using WardrobeManager.Application.PlannedOutfits;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
-public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventOutfitsCommand, GenerateEventOutfitsResult>
+public sealed class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventOutfitsCommand, GenerateEventOutfitsResult>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IOutfitRepository _outfitRepository;
@@ -14,6 +17,8 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
     private readonly IOutfitGenerator _outfitGenerator;
     private readonly IWeatherService _weatherService;
     private readonly IEventOutfitPlanningService _eventOutfitPlanningService;
+    private readonly IStartItemSelector _startItemSelector;
+    private readonly ILogger<GenerateEventOutfitsCommandHandler> _logger;
 
     public GenerateEventOutfitsCommandHandler(
         IPlannerEventRepository plannerEventRepository,
@@ -21,7 +26,9 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
         IClothingRepository clothingRepository,
         IOutfitGenerator outfitGenerator,
         IWeatherService weatherService,
-        IEventOutfitPlanningService eventOutfitPlanningService)
+        IEventOutfitPlanningService eventOutfitPlanningService,
+        IStartItemSelector startItemSelector,
+        ILogger<GenerateEventOutfitsCommandHandler> logger)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
@@ -29,6 +36,8 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
         _outfitGenerator = outfitGenerator;
         _weatherService = weatherService;
         _eventOutfitPlanningService = eventOutfitPlanningService;
+        _startItemSelector = startItemSelector;
+        _logger = logger;
     }
 
     public async Task<GenerateEventOutfitsResult> Handle(GenerateEventOutfitsCommand request, CancellationToken ct)
@@ -36,7 +45,7 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
         var plannerEvent = await _plannerEventRepository.GetByIdAsync(request.PlannerEventId, ct);
         if (plannerEvent == null || plannerEvent.UserId != request.UserId)
         {
-            throw new Exception("Planner event not found or does not belong to user.");
+            throw new KeyNotFoundException("Planner event not found or does not belong to user.");
         }
 
         var startDate = plannerEvent.StartDate.Date;
@@ -45,14 +54,14 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
 
         if (totalDays <= 0 || totalDays > 30)
         {
-            throw new Exception("Invalid date range. Must be between 1 and 30 days.");
+            throw new InvalidOperationException("Invalid date range. Must be between 1 and 30 days.");
         }
 
         // Validate minimum clothing items
         var userClothes = await _clothingRepository.GetByUserIdAsync(request.UserId, ct);
         if (userClothes.Count < 5)
         {
-            throw new Exception("You need at least 5 items in your wardrobe to generate a trip itinerary.");
+            throw new InvalidOperationException("You need at least 5 items in your wardrobe to generate a trip itinerary.");
         }
 
         var generatedDays = new List<GeneratedDayDto>();
@@ -61,14 +70,15 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
 
         // Get forecast for all days at once
         List<DailyForecast> forecast = new();
-        try 
-        { 
-            forecast = await _weatherService.GetForecastAsync(location, totalDays, startDate, ct); 
+        try
+        {
+            forecast = await _weatherService.GetForecastAsync(location, totalDays, startDate, ct);
         }
-        catch { }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Forecast unavailable for {Location}; generating without weather.", location);
+        }
 
-        // We no longer need to build a weather alert here because we just generated the outfits
-        // based on the latest forecast. The drift will be checked on subsequent loads.
         WeatherAlertDto? weatherAlert = null;
 
         for (int i = 0; i < totalDays; i++)
@@ -86,7 +96,7 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
             var (style, moment) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, i, weather, existingItinerary?.Moment, plannerEvent.PreferredStyles);
 
             // Generate outfit
-            var outfitResult = await GenerateOutfitForDay(request.UserId, style, weather, usedStartItemIds, ct);
+            var outfitResult = await GenerateOutfitForDay(request.UserId, style, moment, weather, usedStartItemIds, ct);
             
             if (outfitResult != null)
             {
@@ -143,20 +153,22 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
         return new WeatherDataDto(weather.Temperature, weather.Condition, weather.SeasonSuggestion, date);
     }
 
-    private async Task<Application.Outfits.Queries.AiGeneratedOutfitDto?> GenerateOutfitForDay(
-        Guid userId, 
-        string style, 
+    private async Task<Application.Outfits.Generation.AiGeneratedOutfitDto?> GenerateOutfitForDay(
+        Guid userId,
+        string style,
+        string moment,
         WeatherData? weather,
         IReadOnlyCollection<Guid>? excludedItemIds,
         CancellationToken ct)
     {
-        var startItem = await _eventOutfitPlanningService.SelectStartItemAsync(userId, style, weather, excludedItemIds, ct);
+        var intent = new PromptIntent { Style = style, Occasion = moment };
+        var startItem = await _startItemSelector.SelectAsync(userId, intent, excludedItemIds, weather, ct);
         if (startItem == null)
         {
-            return null;
+            startItem = await _eventOutfitPlanningService.SelectStartItemAsync(userId, style, weather, excludedItemIds, ct);
         }
 
-        if (startItem.Embedding == null)
+        if (startItem?.Embedding == null)
         {
             return null;
         }
@@ -166,13 +178,17 @@ public class GenerateEventOutfitsCommandHandler : IRequestHandler<GenerateEventO
             return await _outfitGenerator.GenerateAiOutfitAsync(
                 userId,
                 startItem.Id,
-                threshold: 0.4,
-                weatherData: weather,
-                style: style,
-                ct: ct);
+                new OutfitGenerationOptions
+                {
+                    Threshold = 0.4,
+                    Weather = weather,
+                    Style = style
+                },
+                ct);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _logger.LogWarning(ex, "Outfit generation failed for day with style {Style}; skipping day.", style);
             return null;
         }
     }

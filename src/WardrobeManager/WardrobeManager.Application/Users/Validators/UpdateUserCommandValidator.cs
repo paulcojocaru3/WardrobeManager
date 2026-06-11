@@ -3,7 +3,7 @@ using WardrobeManager.Application.Users.Commands;
 
 namespace WardrobeManager.Application.Users.Validators;
 
-public class UpdateUserCommandValidator : AbstractValidator<UpdateUserCommand>
+public sealed class UpdateUserCommandValidator : AbstractValidator<UpdateUserCommand>
 {
     public UpdateUserCommandValidator()
     {
@@ -30,7 +30,9 @@ public class UpdateUserCommandValidator : AbstractValidator<UpdateUserCommand>
         When(x => x.NewPassword != null, () =>
         {
             RuleFor(x => x.NewPassword)
-                .MinimumLength(6).WithMessage("Password must be at least 6 characters.");
+                .MinimumLength(8).WithMessage("Password must be at least 8 characters.")
+                .Matches("[A-Za-z]").WithMessage("Password must contain at least one letter.")
+                .Matches("[0-9]").WithMessage("Password must contain at least one number.");
         });
     }
 }

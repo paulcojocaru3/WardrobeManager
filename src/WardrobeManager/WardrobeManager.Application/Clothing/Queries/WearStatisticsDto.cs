@@ -1,6 +1,6 @@
 namespace WardrobeManager.Application.Clothing.Queries;
 
-public class WearStatisticsDto
+public sealed class WearStatisticsDto
 {
     // 0. Window & Summary
     public StatsWindowDto Window { get; set; } = new();
@@ -11,9 +11,7 @@ public class WearStatisticsDto
 
     // 1. Usage
     public List<ItemUsageDto> TopWornItems { get; set; } = new();
-    public List<ItemUsageDto> LeastWornItems { get; set; } = new();
     public List<ItemUsageDto> UnwornRecently { get; set; } = new();
-    public Dictionary<string, int> CategoryDistribution { get; set; } = new();
 
     // 2. Colors
     public List<ColorStatDto> WardrobeColors { get; set; } = new();
@@ -26,7 +24,6 @@ public class WearStatisticsDto
 
     // 4. Outfits
     public List<OutfitUsageDto> TopOutfits { get; set; } = new();
-    public List<ItemUsageDto> MostFrequentInOutfits { get; set; } = new();
 
     // 5. Temporal
     public Dictionary<string, TemporalStatDto> SeasonalDistribution { get; set; } = new();
@@ -45,21 +42,21 @@ public class WearStatisticsDto
     public List<CategoryUtilizationDto> CategoryUtilization { get; set; } = new();
 }
 
-public class StatsWindowDto
+public sealed class StatsWindowDto
 {
     public DateTime? StartDateUtc { get; set; }
     public DateTime? EndDateUtc { get; set; }
     public string Label { get; set; } = string.Empty;
 }
 
-public class StreakStatsDto
+public sealed class StreakStatsDto
 {
     public int CurrentStreakDays { get; set; }
     public int LongestStreakDays { get; set; }
     public DateTime? LatestWearDateUtc { get; set; }
 }
 
-public class OutfitSourceSplitDto
+public sealed class OutfitSourceSplitDto
 {
     public int TotalSessions { get; set; }
     public int AiGeneratedSessions { get; set; }
@@ -68,7 +65,7 @@ public class OutfitSourceSplitDto
     public double CustomPercentage { get; set; }
 }
 
-public class CategoryUtilizationDto
+public sealed class CategoryUtilizationDto
 {
     public string Category { get; set; } = string.Empty;
     public int TotalItems { get; set; }
@@ -77,13 +74,13 @@ public class CategoryUtilizationDto
     public double UtilizationRate { get; set; }
 }
 
-public class DailyHistoryDto
+public sealed class DailyHistoryDto
 {
     public DateTime Date { get; set; }
     public List<WornOutfitDto> Outfits { get; set; } = new();
 }
 
-public class WornOutfitDto
+public sealed class WornOutfitDto
 {
     public Guid? OutfitId { get; set; }
     public string OutfitName { get; set; } = "Custom Look";
@@ -91,13 +88,13 @@ public class WornOutfitDto
     public List<string> ItemImages { get; set; } = new();
 }
 
-public class TemporalStatDto
+public sealed class TemporalStatDto
 {
     public int TotalWears { get; set; }
     public int UniqueItemsWorn { get; set; }
 }
 
-public class ItemUsageDto
+public sealed class ItemUsageDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -106,14 +103,14 @@ public class ItemUsageDto
     public int? DaysSinceLastWear { get; set; }
 }
 
-public class ColorStatDto
+public sealed class ColorStatDto
 {
     public string Color { get; set; } = string.Empty;
     public int Count { get; set; }
     public double Percentage { get; set; }
 }
 
-public class OutfitUsageDto
+public sealed class OutfitUsageDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;

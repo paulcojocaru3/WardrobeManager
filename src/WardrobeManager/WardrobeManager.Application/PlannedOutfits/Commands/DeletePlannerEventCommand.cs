@@ -5,7 +5,7 @@ namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
 public record DeletePlannerEventCommand(Guid UserId, Guid PlannerEventId) : IRequest<bool>;
 
-public class DeletePlannerEventCommandHandler : IRequestHandler<DeletePlannerEventCommand, bool>
+public sealed class DeletePlannerEventCommandHandler : IRequestHandler<DeletePlannerEventCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
 

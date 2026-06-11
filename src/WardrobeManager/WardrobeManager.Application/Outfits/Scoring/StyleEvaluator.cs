@@ -3,39 +3,67 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Scoring;
 
-/// <summary>
-/// Scores how well a candidate's formality fits the target style. Exact matches win,
-/// truly incompatible pairs are vetoed, and otherwise the score is graded by formality
-/// distance: being too casual for the occasion is penalized (so sportswear doesn't slip
-/// into a "Smart Casual" dinner outfit), while being slightly dressier is acceptable.
-/// </summary>
-public class StyleEvaluator : IOutfitEvaluator
+public sealed class StyleEvaluator : IOutfitEvaluator
 {
+    public string Name => "Style";
     public double Weight => 0.30;
 
-    public double Evaluate(ClothingItem candidate, OutfitGenerationContext context)
+    public double? Evaluate(ClothingItem candidate, OutfitGenerationContext context)
     {
-        if (string.IsNullOrEmpty(context.TargetStyle)) return 0.5;
+        bool hasStyle = !string.IsNullOrEmpty(context.TargetStyle);
+        if (!hasStyle && context.Formality == null) return null; // nothing to judge
 
-        string usage = candidate.Usage ?? "";
-        if (string.IsNullOrEmpty(usage)) return 0.3; // unknown style -> mild uncertainty
-
-        string target = context.TargetStyle;
-
-        // Hard vetoes: combinations that are never acceptable.
-        if (IsHardMismatch(target, usage)) return -1.0;
-
-        // Exact style match.
-        if (usage.Contains(target, StringComparison.OrdinalIgnoreCase)) return 1.0;
-
-        // Graded by formality distance. Under-dressing is penalized; over-dressing is fine.
-        int delta = FormalityRank(usage) - FormalityRank(target);
-        return delta switch
+        string usage = candidate.Usage;
+        if (usage == null)
         {
-            >= 0 => 0.6,  // same level or dressier than needed -> acceptable
-            -1   => 0.1,  // one notch too casual -> tolerated
-            _    => -0.5  // two+ notches too casual -> dispreferred (e.g. Sports for a dinner date)
-        };
+            usage = "";
+        }
+
+        double? styleScore = null;
+        if (hasStyle)
+        {
+            string target = context.TargetStyle!;
+            if (string.IsNullOrEmpty(usage))
+            {
+                styleScore = 0.3; // unknown style -> mild uncertainty
+            }
+            else if (IsHardMismatch(target, usage))
+            {
+                return -1.0; // never acceptable (e.g. Sports in a Formal outfit)
+            }
+            else if (usage.Contains(target, StringComparison.OrdinalIgnoreCase))
+            {
+                styleScore = 1.0; // exact match
+            }
+            else
+            {
+                int distance = Math.Abs(FormalityRank(usage) - FormalityRank(target));
+                styleScore = distance switch
+                {
+                    0 => 0.8,   // same formality level, different label
+                    1 => 0.6,   // adjacent style (e.g. smart casual for a casual ask) -> fine, small dip
+                    2 => 0.1,   // two notches off -> dispreferred
+                    _ => -0.3   // far apart (e.g. formal for a casual ask) -> penalized
+                };
+            }
+        }
+
+        // Secondary: explicit formality 1–5 (mapped to rank 0–4).
+        double? formalityScore = null;
+        if (context.Formality is int f && !string.IsNullOrEmpty(usage))
+        {
+            int desiredRank = Math.Clamp(f - 1, 0, 4);
+            int diff = Math.Abs(FormalityRank(usage) - desiredRank);
+            formalityScore = diff switch { 0 => 1.0, 1 => 0.5, 2 => 0.0, _ => -0.4 };
+        }
+
+        if (styleScore.HasValue && formalityScore.HasValue)
+            return 0.7 * styleScore.Value + 0.3 * formalityScore.Value;
+        if (styleScore.HasValue)
+        {
+            return styleScore;
+        }
+        return formalityScore;
     }
 
     private static bool IsHardMismatch(string target, string usage)
@@ -51,8 +79,7 @@ public class StyleEvaluator : IOutfitEvaluator
         return false;
     }
 
-    // Higher = dressier. Used to penalize items that are too casual for the target.
-    // Note: check "Smart Casual" before "Casual" (substring) and likewise for Sports.
+    // Higher = dressier. Check "Smart Casual" before "Casual" (substring), likewise Sports.
     private static int FormalityRank(string usage)
     {
         if (usage.Contains("Sports", StringComparison.OrdinalIgnoreCase)) return 0;

@@ -4,40 +4,42 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Scoring;
 
-/// <summary>
-/// Scores candidates against the colors the user explicitly asked for (or to avoid)
-/// in their prompt. Stays neutral when the prompt expressed no color preference.
-/// </summary>
-public class ColorPreferenceEvaluator : IOutfitEvaluator
+public sealed class ColorPreferenceEvaluator : IOutfitEvaluator
 {
+    public string Name => "ColorPreference";
     public double Weight => 0.20;
 
-    public double Evaluate(ClothingItem candidate, OutfitGenerationContext context)
+    public double? Evaluate(ClothingItem candidate, OutfitGenerationContext context)
     {
         bool hasDesired = context.DesiredColors.Count > 0;
         bool hasAvoid = context.AvoidColors.Count > 0;
+        bool hasPreferred = context.PreferredColors.Count > 0;
 
-        // No color intent in the prompt -> neutral, doesn't disturb ranking.
-        if (!hasDesired && !hasAvoid) return 0.0;
+        if (!hasDesired && !hasAvoid && !hasPreferred) return null; // abstain
 
-        string color = candidate.Color ?? "";
-        if (string.IsNullOrEmpty(color)) return 0.0;
+        string color = candidate.Color;
+        if (color == null)
+        {
+            color = "";
+        }
+        if (string.IsNullOrEmpty(color)) return null;
 
-        if (hasAvoid && context.AvoidColors.Any(a => ColorsMatch(color, a)))
-            return -1.0; // Veto colors the user explicitly rejected
+        // Explicit avoid -> hard veto.
+        if (hasAvoid && context.AvoidColors.Any(a => ColorFamily.ColorsMatch(color, a)))
+            return -1.0;
 
-        if (hasDesired && context.DesiredColors.Any(d => ColorsMatch(color, d)))
-            return 1.0; // Exactly what the user asked for
+        // Explicit desired colors take precedence over favorites.
+        if (hasDesired)
+        {
+            return context.DesiredColors.Any(d => ColorFamily.ColorsMatch(color, d))
+                ? 1.0    // exactly what the user asked for
+                : -0.3;  // wanted specific colors, this isn't one
+        }
 
-        // User wanted specific colors and this isn't one of them.
-        if (hasDesired) return -0.3;
+        // Soft favorite-color nudge: reward matches, never penalize non-matches.
+        if (hasPreferred && context.PreferredColors.Any(p => ColorFamily.ColorsMatch(color, p)))
+            return 0.5;
 
-        return 0.0;
-    }
-
-    private static bool ColorsMatch(string itemColor, string promptColor)
-    {
-        return itemColor.Contains(promptColor, StringComparison.OrdinalIgnoreCase)
-            || promptColor.Contains(itemColor, StringComparison.OrdinalIgnoreCase);
+        return null; // avoid-only/preferred-only with no match -> neutral abstain
     }
 }

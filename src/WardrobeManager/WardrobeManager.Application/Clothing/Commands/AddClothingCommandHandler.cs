@@ -5,7 +5,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Clothing.Commands;
 
-public class AddClothingCommandHandler(
+public sealed class AddClothingCommandHandler(
     IClothingRepository clothingRepository, 
     IUserRepository userRepository,
     IValidator<AddClothingCommand> validator) 
@@ -26,7 +26,8 @@ public class AddClothingCommandHandler(
             UserId = request.UserId,
             Name = request.Name,
             Type = request.Type,
-            Color = request.Color, 
+            SubType = request.SubType,
+            Color = request.Color,
             Gender = request.Gender,
             Season = request.Season,
             Usage = request.Usage,

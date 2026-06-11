@@ -1,10 +1,11 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using WardrobeManager.Application.Abstractions;
+using Microsoft.IdentityModel.Tokens;
+using WardrobeManager.API.Middleware;
+using WardrobeManager.Application;
+using WardrobeManager.Infrastructure;
 using WardrobeManager.Infrastructure.Persistance;
-using WardrobeManager.Application.Users.Commands;
-using FluentValidation;
-using MediatR;
-using WardrobeManager.Application.Users.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +22,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 
-// CORS Configuration
+// CORS for the React dev server
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>
@@ -32,96 +33,54 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Database Configuration
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString, o => o.UseVector()));
+// compose the layers — registrations live next to each layer (see *.DependencyInjection)
+builder.Services
+    .AddApplication()
+    .AddInfrastructure(builder.Configuration, builder.Environment.ContentRootPath);
 
-// Register MediatR and FluentValidation
-builder.Services.AddMediatR(cfg => {
-    cfg.RegisterServicesFromAssembly(typeof(RegisterUserCommand).Assembly);
-});
-builder.Services.AddValidatorsFromAssemblyContaining<RegisterUserCommandValidator>();
-
-// Register Repositories
-builder.Services.AddScoped<IUserRepository, WardrobeManager.Infrastructure.Repositories.UserRepository>();
-builder.Services.AddScoped<IClothingRepository, WardrobeManager.Infrastructure.Repositories.ClothingRepository>();
-builder.Services.AddScoped<IOutfitRepository, WardrobeManager.Infrastructure.Repositories.OutfitRepository>();
-builder.Services.AddScoped<IWearEventRepository, WardrobeManager.Infrastructure.Repositories.WearEventRepository>();
-builder.Services.AddScoped<IPlannerEventRepository, WardrobeManager.Infrastructure.Repositories.PlannerEventRepository>();
-
-// Register Domain/Application Services
-builder.Services.AddScoped<IOutfitGenerator, WardrobeManager.Application.Outfits.OutfitGenerator>();
-builder.Services.AddScoped<IEventOutfitPlanningService, WardrobeManager.Application.PlannedOutfits.EventOutfitPlanningService>();
-builder.Services.AddScoped<IWeatherService, WardrobeManager.Infrastructure.ExternalServices.WeatherService>();
-builder.Services.AddScoped<IStartItemSelector, WardrobeManager.Application.Outfits.Prompting.StartItemSelector>();
-
-// Deterministic occasion -> style map (primary style signal; LLM is fallback).
-var occasionMapPath = Path.Combine(builder.Environment.ContentRootPath, "Data", "occasion-style-map.json");
-builder.Services.AddSingleton<IOccasionClassifier>(
-    new WardrobeManager.Infrastructure.ExternalServices.OccasionClassifier(occasionMapPath));
-
-// Register extern
-builder.Services.AddHttpClient<IMlService, WardrobeManager.Infrastructure.ExternalServices.MlService>(client =>
+// auth pipeline (host concern)
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (jwtKey == null)
 {
-    var mlUrl = builder.Configuration["FastApi:BaseUrl"] ?? builder.Configuration["ExternalServices:MlApiUrl"];
-    client.BaseAddress = new Uri(mlUrl ?? "http://localhost:8000");
-});
-
-// Ollama LLM for prompt understanding
-builder.Services.AddHttpClient<IPromptIntentService, WardrobeManager.Infrastructure.ExternalServices.OllamaPromptIntentService>(client =>
-{
-    var ollamaUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
-    client.BaseAddress = new Uri(ollamaUrl.TrimEnd('/') + "/");
-    var timeoutSeconds = builder.Configuration.GetValue<int?>("Ollama:TimeoutSeconds") ?? 60;
-    client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
-});
+    throw new InvalidOperationException("Jwt:Key is not configured.");
+}
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Global Exception Handler for all Errors
-app.Use(async (context, next) =>
-{
-    try
-    {
-        await next();
-    }
-    catch (ValidationException ex)
-    {
-        context.Response.StatusCode = 400;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            Errors = ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage })
-        });
-    }
-    catch (Exception ex)
-    {
-        context.Response.StatusCode = 500;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            Error = ex.Message,
-            Type = ex.GetType().Name
-        });
-    }
-});
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
-// database creation with retry logic
+// database creation with retry logic (the DB container may still be starting)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    int retries = 5;
-    while (retries > 0)
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    for (var attempt = 1; ; attempt++)
     {
         try
         {
-            db.Database.EnsureCreated();
+            await db.Database.EnsureCreatedAsync();
             break;
         }
-        catch (Exception)
+        catch (Exception ex) when (attempt < 5)
         {
-            retries--;
-            if (retries == 0) throw;
-            Thread.Sleep(5000); 
+            startupLogger.LogWarning(ex, "Database not ready (attempt {Attempt}/5); retrying in 5s.", attempt);
+            await Task.Delay(TimeSpan.FromSeconds(5));
         }
     }
 }
@@ -133,6 +92,9 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseCors("AllowReact");
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.Run();

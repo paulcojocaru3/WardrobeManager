@@ -1,4 +1,5 @@
 import { CLOTHING_TYPES } from '../constants/wardrobe';
+import { colorToHex } from '../constants/colors';
 
 export function toTypeIndex(typeValue) {
   if (typeof typeValue === 'number') {
@@ -130,21 +131,11 @@ export function normalizeStatsResponse(data) {
   };
 }
 
+// Resolve a color name to a usable CSS color for charts/swatches. Uses the
+// canonical colorToHex map (covers the full ML vocabulary, e.g. "denim blue"),
+// falling back to a neutral grey when the name is unknown.
 export function getCssColor(colorName) {
-  const map = {
-    'navy blue': '#000080',
-    'sky blue': '#87CEEB',
-    maroon: '#800000',
-    mustard: '#FFDB58',
-    burgundy: '#800020',
-    'olive green': '#556B2F',
-    'off-white': '#FAF9F6',
-    cream: '#FFFDD0',
-    charcoal: '#36454F',
-    grey: '#808080'
-  };
-
-  return map[colorName?.toLowerCase()] || colorName || '#999';
+  return colorToHex(colorName) || '#999';
 }
 
 export function formatDate(value) {

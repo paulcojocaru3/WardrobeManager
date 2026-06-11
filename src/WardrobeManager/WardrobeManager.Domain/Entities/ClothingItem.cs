@@ -6,6 +6,8 @@ public class ClothingItem
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
     public WardrobeManager.Domain.Enums.ClothingType Type { get; set; }
+    // Fine-grained ML article type (e.g. "shorts", "jeans", "tshirts"); enables garment-specific requests.
+    public string? SubType { get; set; }
     public string? Color { get; set; }
     public string? Material { get; set; }
     public string? Gender { get; set; }

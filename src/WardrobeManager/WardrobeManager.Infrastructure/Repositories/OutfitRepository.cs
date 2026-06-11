@@ -5,7 +5,7 @@ using WardrobeManager.Infrastructure.Persistance;
 
 namespace WardrobeManager.Infrastructure.Repositories;
 
-public class OutfitRepository(ApplicationDbContext context) : IOutfitRepository
+public sealed class OutfitRepository(ApplicationDbContext context) : IOutfitRepository
 {
     public async Task<Outfit?> GetByIdAsync(Guid id, CancellationToken ct)
     {
@@ -16,8 +16,9 @@ public class OutfitRepository(ApplicationDbContext context) : IOutfitRepository
 
     public async Task<List<Outfit>> GetByUserIdAsync(Guid userId, CancellationToken ct)
     {
-        // Ne asigurăm că datele sunt proaspete și includem hainele
+        // Read-only listing — no change tracking needed.
         return await context.Outfits
+            .AsNoTracking()
             .Include(o => o.Items)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.CreatedAt)

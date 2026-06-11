@@ -1,27 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-    <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <Nullable>enable</Nullable>
-        <ImplicitUsings>enable</ImplicitUsings>
-    </PropertyGroup>
-
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.2" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="7.3.1" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.2">
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+        <PackageReference Include="Swashbuckle.AspNetCore" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Controllers\" />
+      <ProjectReference Include="..\WardrobeManager.Application\WardrobeManager.Application.csproj" />
+      <ProjectReference Include="..\WardrobeManager.Infrastructure\WardrobeManager.Infrastructure.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\WardrobeManager.Application\WardrobeManager.Application.csproj" />
-      <ProjectReference Include="..\WardrobeManager.Infrastructure\WardrobeManager.Infrastructure.csproj" />
+      <!-- Keyword/style maps are loaded from disk at runtime; make sure publish copies them. -->
+      <Content Update="Data\*.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

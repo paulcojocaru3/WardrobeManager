@@ -4,7 +4,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Clothing.Commands;
 
-public class DeleteClothingCommandHandler(IClothingRepository clothingRepository, IValidator<DeleteClothingCommand> validator) : IRequestHandler<DeleteClothingCommand, bool>
+public sealed class DeleteClothingCommandHandler(IClothingRepository clothingRepository, IValidator<DeleteClothingCommand> validator) : IRequestHandler<DeleteClothingCommand, bool>
 {
     public async Task<bool> Handle(DeleteClothingCommand request, CancellationToken ct)
     {

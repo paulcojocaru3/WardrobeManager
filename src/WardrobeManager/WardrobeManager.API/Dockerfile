@@ -3,6 +3,9 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copiem csproj-urile pentru restore rapid
+COPY ["src/WardrobeManager/Directory.Build.props", "src/WardrobeManager/"]
+COPY ["src/WardrobeManager/Directory.Packages.props", "src/WardrobeManager/"]
+COPY ["src/WardrobeManager/global.json", "src/WardrobeManager/"]
 COPY ["src/WardrobeManager/WardrobeManager.API/WardrobeManager.API.csproj", "src/WardrobeManager/WardrobeManager.API/"]
 COPY ["src/WardrobeManager/WardrobeManager.Application/WardrobeManager.Application.csproj", "src/WardrobeManager/WardrobeManager.Application/"]
 COPY ["src/WardrobeManager/WardrobeManager.Domain/WardrobeManager.Domain.csproj", "src/WardrobeManager/WardrobeManager.Domain/"]

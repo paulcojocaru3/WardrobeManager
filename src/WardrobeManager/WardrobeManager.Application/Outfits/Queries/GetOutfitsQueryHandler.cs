@@ -5,7 +5,7 @@ using WardrobeManager.Application.Clothing.Queries;
 
 namespace WardrobeManager.Application.Outfits.Queries;
 
-public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidator<GetOutfitsQuery> validator) : IRequestHandler<GetOutfitsQuery, List<OutfitDto>>
+public sealed class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidator<GetOutfitsQuery> validator) : IRequestHandler<GetOutfitsQuery, List<OutfitDto>>
 {
     public async Task<List<OutfitDto>> Handle(GetOutfitsQuery request, CancellationToken ct)
     {
@@ -21,7 +21,7 @@ public class GetOutfitsQueryHandler(IOutfitRepository outfitRepository, IValidat
             o.Tags,
             o.CreatedAt,
             o.Items.Select(i => new ClothingItemDto(
-                i.Id, i.Name, i.Type, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl!, i.CreatedAt
+                i.Id, i.Name, i.Type, i.SubType, i.Color, i.Gender, i.Season, i.Usage, i.ProcessedImageUrl!, i.CreatedAt
             )).ToList()
         )).ToList();
     }

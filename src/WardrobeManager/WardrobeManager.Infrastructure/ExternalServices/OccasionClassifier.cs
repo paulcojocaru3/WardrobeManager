@@ -4,13 +4,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Infrastructure.ExternalServices;
 
-/// <summary>
-/// Loads the curated occasion -> style keyword map (occasion-style-map.json) and matches
-/// it against a prompt. Keywords are matched on word boundaries, longest first, so the
-/// most specific occasion wins ("dinner date" beats "date"). Resilient: if the file is
-/// missing or malformed, ClassifyStyle returns null and the caller falls back to the LLM.
-/// </summary>
-public class OccasionClassifier : IOccasionClassifier
+public sealed class OccasionClassifier : IOccasionClassifier
 {
     private readonly List<(string Keyword, string Style)> _rules;
 
@@ -42,13 +36,17 @@ public class OccasionClassifier : IOccasionClassifier
             var map = JsonSerializer.Deserialize<OccasionMap>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             var rules = new List<(string, string)>();
-            foreach (var occ in map?.Occasions ?? new())
+            var occasions = map?.Occasions;
+            if (occasions != null)
             {
-                if (string.IsNullOrWhiteSpace(occ.Style) || occ.Keywords == null) continue;
-                foreach (var kw in occ.Keywords)
+                foreach (var occ in occasions)
                 {
-                    if (!string.IsNullOrWhiteSpace(kw))
-                        rules.Add((kw.Trim().ToLowerInvariant(), occ.Style));
+                    if (string.IsNullOrWhiteSpace(occ.Style) || occ.Keywords == null) continue;
+                    foreach (var kw in occ.Keywords)
+                    {
+                        if (!string.IsNullOrWhiteSpace(kw))
+                            rules.Add((kw.Trim().ToLowerInvariant(), occ.Style));
+                    }
                 }
             }
 

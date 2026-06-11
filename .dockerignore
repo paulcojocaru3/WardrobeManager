@@ -1,0 +1,19 @@
+# Build artifacts (.NET) - never ship Windows obj/bin into a Linux image
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+
+# Frontend & Python (built inside their own images)
+wardrobe_web/node_modules/
+wardrobe_web/dist/
+ml_api/__pycache__/
+**/*.pyc
+
+# VCS & misc
+.git/
+.gitignore
+**/.dockerignore
+docker-compose*.yml
+README.md
+*.md

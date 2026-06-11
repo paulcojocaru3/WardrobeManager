@@ -1,0 +1,21 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+WORKDIR /src
+
+COPY ["src/WardrobeManager/Directory.Build.props", "src/WardrobeManager/"]
+COPY ["src/WardrobeManager/Directory.Packages.props", "src/WardrobeManager/"]
+COPY ["src/WardrobeManager/global.json", "src/WardrobeManager/"]
+COPY ["src/WardrobeManager/WardrobeManager.API/WardrobeManager.API.csproj", "src/WardrobeManager/WardrobeManager.API/"]
+COPY ["src/WardrobeManager/WardrobeManager.Application/WardrobeManager.Application.csproj", "src/WardrobeManager/WardrobeManager.Application/"]
+COPY ["src/WardrobeManager/WardrobeManager.Domain/WardrobeManager.Domain.csproj", "src/WardrobeManager/WardrobeManager.Domain/"]
+COPY ["src/WardrobeManager/WardrobeManager.Infrastructure/WardrobeManager.Infrastructure.csproj", "src/WardrobeManager/WardrobeManager.Infrastructure/"]
+
+RUN dotnet restore "src/WardrobeManager/WardrobeManager.API/WardrobeManager.API.csproj"
+
+COPY . .
+
+WORKDIR /src/src/WardrobeManager/WardrobeManager.API
+
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "watch", "run", "--no-launch-profile"]

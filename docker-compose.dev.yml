@@ -1,0 +1,113 @@
+services:
+  postgres-db:
+    image: pgvector/pgvector:pg17
+    container_name: wardrobe-postgres-dev
+    environment:
+      POSTGRES_USER: wardrobe_admin
+      POSTGRES_PASSWORD: wardrobe_pass
+      POSTGRES_DB: wardrobe_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql
+    networks:
+      - default
+
+  ml-api:
+    build:
+      context: ./ml_api
+    ports:
+      - "8000:8000"
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./ml_api:/app
+    depends_on:
+      - postgres-db
+    networks:
+      - default
+    develop:
+      watch:
+        - action: sync
+          path: ./ml_api
+          target: /app
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+            - "*.h5"
+            - models/
+        - action: rebuild
+          path: ./ml_api/requirements.txt
+
+  wardrobe-api:
+    build:
+      context: .
+      dockerfile: src/WardrobeManager/WardrobeManager.API/Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres-db;Database=wardrobe_db;Username=wardrobe_admin;Password=wardrobe_pass"
+      FastApi__BaseUrl: "http://ml-api:8000"
+      Ollama__BaseUrl: "http://host.docker.internal:11434"
+      WeatherApi__Key: "${WEATHER_API_KEY}"
+      Jwt__Key: "${JWT_KEY:-dev-only-insecure-key-change-me-min-32-chars-long-0123456789}"
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres-db
+      - ml-api
+    networks:
+      - default
+    develop:
+      watch:
+        - action: sync
+          path: ./src/WardrobeManager
+          target: /src/src/WardrobeManager
+          ignore:
+            - "**/bin/"
+            - "**/obj/"
+        - action: rebuild
+          path: ./src/WardrobeManager/WardrobeManager.API/WardrobeManager.API.csproj
+        - action: rebuild
+          path: ./src/WardrobeManager/WardrobeManager.Application/WardrobeManager.Application.csproj
+        - action: rebuild
+          path: ./src/WardrobeManager/WardrobeManager.Infrastructure/WardrobeManager.Infrastructure.csproj
+        - action: rebuild
+          path: ./src/WardrobeManager/WardrobeManager.Domain/WardrobeManager.Domain.csproj
+        - action: rebuild
+          path: ./src/WardrobeManager/Directory.Build.props
+        - action: rebuild
+          path: ./src/WardrobeManager/Directory.Packages.props
+        - action: rebuild
+          path: ./src/WardrobeManager/global.json
+
+  wardrobe-frontend:
+    build:
+      context: ./wardrobe_web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: "http://localhost:8080/api"
+    depends_on:
+      - wardrobe-api
+    networks:
+      - default
+    develop:
+      watch:
+        - action: sync
+          path: ./wardrobe_web/src
+          target: /app/src
+        - action: sync
+          path: ./wardrobe_web/public
+          target: /app/public
+        - action: rebuild
+          path: ./wardrobe_web/package.json
+
+volumes:
+  postgres_data_dev:
+
+networks:
+  default:
+    name: proiect_licenta_dev

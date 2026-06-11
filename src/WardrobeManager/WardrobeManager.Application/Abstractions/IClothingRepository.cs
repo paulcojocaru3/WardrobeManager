@@ -11,6 +11,11 @@ public interface IClothingRepository
     Task<ClothingItem?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<List<ClothingItem>> GetByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
     Task<List<ClothingItem>> GetByUserIdAsync(Guid userId, CancellationToken ct = default);
-    Task<List<(ClothingItem Item, double Similarity)>> GetSimilarItemsAsync(Guid userId, float[] vector, ClothingType? type = null, int limit = 10, double? threshold = null, CancellationToken ct = default);
+    Task<List<(ClothingItem Item, double Similarity)>> GetSimilarItemsAsync(Guid userId, float[] vector, ClothingType? type = null, int limit = 10, double? threshold = null, string? gender = null, CancellationToken ct = default);
+
+    // last-worn date per item (worn items only), feeds variety scoring
+    Task<Dictionary<Guid, DateTime>> GetWearRecencyAsync(Guid userId, CancellationToken ct = default);
+    Task<List<ClothingItem>> GetMissingSubTypeWithEmbeddingAsync(Guid userId, CancellationToken ct = default);
+    Task UpdateRangeAsync(IReadOnlyCollection<ClothingItem> items, CancellationToken ct = default);
     IQueryable<ClothingItem> Query();
 }

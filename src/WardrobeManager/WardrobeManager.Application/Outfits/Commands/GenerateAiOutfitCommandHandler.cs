@@ -1,11 +1,11 @@
 using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Application.Outfits.Queries;
+using WardrobeManager.Application.Outfits.Generation;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public class GenerateAiOutfitCommandHandler(
+public sealed class GenerateAiOutfitCommandHandler(
     IOutfitGenerator outfitGenerator,
     IWeatherService weatherService,
     IValidator<GenerateAiOutfitCommand> validator) : IRequestHandler<GenerateAiOutfitCommand, AiGeneratedOutfitDto>
@@ -20,6 +20,15 @@ public class GenerateAiOutfitCommandHandler(
             weather = await weatherService.GetCurrentWeatherAsync(request.City, ct);
         }
 
-        return await outfitGenerator.GenerateAiOutfitAsync(request.UserId, request.StartItemId, request.Threshold, weather, request.Style, ct: ct);
+        return await outfitGenerator.GenerateAiOutfitAsync(
+            request.UserId,
+            request.StartItemId,
+            new OutfitGenerationOptions
+            {
+                Threshold = request.Threshold,
+                Weather = weather,
+                Style = request.Style
+            },
+            ct);
     }
 }

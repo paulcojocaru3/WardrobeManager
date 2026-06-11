@@ -1,0 +1,22 @@
+{
+  "shorts":      ["shorts", "short", "pantaloni scurti", "pantalon scurt", "sort", "sorti", "sorturi", "bermude", "bermuda"],
+  "jeans":       ["jeans", "blugi", "denim"],
+  "pants":       ["pants", "trousers", "pantaloni", "pantalon"],
+  "track pants": ["track pants", "trening", "pantaloni de trening", "joggers", "sweatpants"],
+  "leggings":    ["leggings", "colanti", "colant"],
+  "skirts":      ["skirt", "skirts", "fusta", "fuste"],
+  "tshirts":     ["t-shirt", "tshirt", "tshirts", "tee", "tricou", "tricouri"],
+  "shirts":      ["shirt", "shirts", "camasa", "camasi"],
+  "tops":        ["top", "tops", "maieu", "maiou"],
+  "dresses":     ["dress", "dresses", "rochie", "rochii"],
+  "sweaters":    ["sweater", "sweaters", "pulover", "pulovere", "pulovar"],
+  "sweatshirts": ["sweatshirt", "hanorac", "hanorace", "hoodie", "hoodies"],
+  "jackets":     ["jacket", "jackets", "geaca", "geci"],
+  "blazers":     ["blazer", "blazers", "sacou", "sacouri"],
+  "shoes":       ["shoes", "pantofi", "incaltaminte"],
+  "sandals":     ["sandals", "sandale"],
+  "flip flops":  ["flip flops", "slapi", "papuci"],
+  "heels":       ["heels", "tocuri", "pantofi cu toc"],
+  "caps":        ["cap", "caps", "sapca", "sepci"],
+  "hat":         ["hat", "palarie", "palarii"]
+}

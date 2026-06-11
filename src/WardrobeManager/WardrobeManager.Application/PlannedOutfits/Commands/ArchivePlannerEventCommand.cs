@@ -6,19 +6,7 @@ namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
 public record ArchivePlannerEventCommand(Guid UserId, Guid PlannerEventId) : IRequest<bool>;
 
-public class ArchivePlannerEventCommandValidator : AbstractValidator<ArchivePlannerEventCommand>
-{
-    public ArchivePlannerEventCommandValidator()
-    {
-        RuleFor(x => x.UserId)
-            .NotEmpty();
-
-        RuleFor(x => x.PlannerEventId)
-            .NotEmpty();
-    }
-}
-
-public class ArchivePlannerEventCommandHandler : IRequestHandler<ArchivePlannerEventCommand, bool>
+public sealed class ArchivePlannerEventCommandHandler : IRequestHandler<ArchivePlannerEventCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IValidator<ArchivePlannerEventCommand> _validator;

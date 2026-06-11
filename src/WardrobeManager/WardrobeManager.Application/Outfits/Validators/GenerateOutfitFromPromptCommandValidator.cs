@@ -3,7 +3,7 @@ using WardrobeManager.Application.Outfits.Commands;
 
 namespace WardrobeManager.Application.Outfits.Validators;
 
-public class GenerateOutfitFromPromptCommandValidator : AbstractValidator<GenerateOutfitFromPromptCommand>
+public sealed class GenerateOutfitFromPromptCommandValidator : AbstractValidator<GenerateOutfitFromPromptCommand>
 {
     public GenerateOutfitFromPromptCommandValidator()
     {

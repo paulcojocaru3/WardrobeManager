@@ -3,15 +3,13 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits;
 
-public class EventOutfitPlanningService(IClothingRepository clothingRepository) : IEventOutfitPlanningService
+public sealed class EventOutfitPlanningService(IClothingRepository clothingRepository) : IEventOutfitPlanningService
 {
     // Alert threshold for temperature change (°C) between stored forecast and current weather.
     private const float WeatherTemperatureAlertDeltaCelsius = 5f;
 
     public (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather, string? existingMoment = null, List<string>? preferredStyles = null)
     {
-        // If the user already provided a moment (e.g. they typed "Dinner", "Gym", "Flight"),
-        // try to infer the style directly from that moment string.
         if (!string.IsNullOrWhiteSpace(existingMoment))
         {
             var momentLower = existingMoment.ToLowerInvariant();
@@ -28,13 +26,13 @@ public class EventOutfitPlanningService(IClothingRepository clothingRepository) 
                 _ => GetDefaultStyleForEvent(eventType, weather, preferredStyles)
             };
 
-            return (inferredStyle, existingMoment);
+            return (CanonicalizeStyle(inferredStyle), existingMoment);
         }
 
         // If no existing moment, fallback to auto-generation rules
         if (dayIndex == 0)
         {
-            return eventType switch
+            var (firstStyle, firstMoment) = eventType switch
             {
                 "Vacation" => ("Travel", "Travel"),
                 "Business Trip" => ("Business", "Business"),
@@ -45,11 +43,21 @@ public class EventOutfitPlanningService(IClothingRepository clothingRepository) 
                 "Weekend" => ("Casual", "Leisure"),
                 _ => ("Casual", "Day")
             };
+            return (CanonicalizeStyle(firstStyle), firstMoment);
         }
 
         var style = GetDefaultStyleForEvent(eventType, weather, preferredStyles);
-        return (style, DetermineMoment(weather));
+        return (CanonicalizeStyle(style), DetermineMoment(weather));
     }
+
+    private static string CanonicalizeStyle(string style) => style switch
+    {
+        _ when style.Equals("Business", StringComparison.OrdinalIgnoreCase) => "Smart Casual",
+        _ when style.Equals("Date", StringComparison.OrdinalIgnoreCase) => "Smart Casual",
+        _ when style.Equals("Leisure", StringComparison.OrdinalIgnoreCase) => "Casual",
+        _ when style.Equals("Day", StringComparison.OrdinalIgnoreCase) => "Casual",
+        _ => style
+    };
 
     private static string GetDefaultStyleForEvent(string eventType, WeatherData? weather, List<string>? preferredStyles)
     {
@@ -94,7 +102,11 @@ public class EventOutfitPlanningService(IClothingRepository clothingRepository) 
             return null;
         }
 
-        var seasonFromWeather = weather?.SeasonSuggestion ?? "Summer";
+        string seasonFromWeather = "Summer";
+        if (weather != null)
+        {
+            seasonFromWeather = weather.SeasonSuggestion;
+        }
 
         var perfectMatch = availableClothes
             .Where(c =>

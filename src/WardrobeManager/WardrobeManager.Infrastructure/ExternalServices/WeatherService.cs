@@ -5,7 +5,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Infrastructure.ExternalServices;
 
-public class WeatherService(HttpClient httpClient, IConfiguration configuration, IMemoryCache cache) : IWeatherService
+public sealed class WeatherService(HttpClient httpClient, IConfiguration configuration, IMemoryCache cache) : IWeatherService
 {
     private readonly string _apiKey = configuration["WeatherApi:Key"] ?? "YOUR_API_KEY_HERE";
     private const string BaseUrl = "https://api.openweathermap.org/data/2.5/weather";
@@ -29,7 +29,16 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration,
         if (response == null) throw new Exception("Failed to fetch weather data.");
 
         var temp = response.Main.Temp;
-        var condition = response.Weather.FirstOrDefault()?.Main ?? "Unknown";
+        var firstWeather = response.Weather.FirstOrDefault();
+        string condition;
+        if (firstWeather != null)
+        {
+            condition = firstWeather.Main;
+        }
+        else
+        {
+            condition = "Unknown";
+        }
         
         var seasonSuggestion = MapTempToSeason(temp);
 
@@ -57,7 +66,15 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration,
             var url = $"http://api.openweathermap.org/geo/1.0/direct?q={query}&limit=5&appid={_apiKey}";
             var response = await httpClient.GetFromJsonAsync<List<OpenWeatherGeoResponse>>(url, ct);
             
-            var result = response?.Select(x => new CitySuggestion(x.Name, x.Country, x.State)).ToList() ?? new List<CitySuggestion>();
+            List<CitySuggestion> result;
+            if (response != null)
+            {
+                result = response.Select(x => new CitySuggestion(x.Name, x.Country, x.State)).ToList();
+            }
+            else
+            {
+                result = new List<CitySuggestion>();
+            }
             
             // Cache for 24 hours since city names don't change
             cache.Set(cacheKey, result, TimeSpan.FromHours(24));
@@ -82,7 +99,15 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration,
 
     public async Task<List<DailyForecast>> GetForecastAsync(string city, int days, DateTime? startDate = null, CancellationToken ct = default)
     {
-        var start = startDate?.Date ?? DateTime.UtcNow.Date;
+        DateTime start;
+        if (startDate.HasValue)
+        {
+            start = startDate.Value.Date;
+        }
+        else
+        {
+            start = DateTime.UtcNow.Date;
+        }
 
         if (_apiKey == "YOUR_API_KEY_HERE" || string.IsNullOrEmpty(_apiKey))
         {
@@ -114,18 +139,49 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration,
             
             if (forecast != null)
             {
+                var forecastWeather = forecast.Weather.FirstOrDefault();
+                string condition;
+                if (forecastWeather != null)
+                {
+                    condition = forecastWeather.Main;
+                }
+                else
+                {
+                    condition = "Unknown";
+                }
+
                 result.Add(new DailyForecast(
                     targetDate,
                     forecast.Temp.Day,
-                    forecast.Weather.FirstOrDefault()?.Main ?? "Unknown",
+                    condition,
                     MapTempToSeason(forecast.Temp.Day)
                 ));
             }
             else
             {
                 // If no forecast available for this date, use the last available
-                var fallbackTemp = response.List.LastOrDefault()?.Temp.Day ?? 22;
-                var fallbackCondition = response.List.LastOrDefault()?.Weather.FirstOrDefault()?.Main ?? "Clear";
+                var lastForecast = response.List.LastOrDefault();
+
+                float fallbackTemp;
+                if (lastForecast != null)
+                {
+                    fallbackTemp = lastForecast.Temp.Day;
+                }
+                else
+                {
+                    fallbackTemp = 22;
+                }
+
+                string fallbackCondition = "Clear";
+                if (lastForecast != null)
+                {
+                    var lastWeather = lastForecast.Weather.FirstOrDefault();
+                    if (lastWeather != null)
+                    {
+                        fallbackCondition = lastWeather.Main;
+                    }
+                }
+
                 result.Add(new DailyForecast(targetDate, fallbackTemp, fallbackCondition, MapTempToSeason(fallbackTemp)));
             }
         }
@@ -158,19 +214,6 @@ public class WeatherService(HttpClient httpClient, IConfiguration configuration,
     { 
         [System.Text.Json.Serialization.JsonPropertyName("main")]
         public string Main { get; set; } = null!; 
-    }
-
-    private class OpenWeatherForecastResponse
-    {
-        public List<ForecastItem> List { get; set; } = new();
-    }
-
-    private class ForecastItem
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("dt_txt")]
-        public DateTime DtTxt { get; set; }
-        public MainData Main { get; set; } = null!;
-        public List<WeatherInfo> Weather { get; set; } = new();
     }
 
     private class OpenWeatherDailyForecastResponse
