@@ -2,9 +2,10 @@ name: SonarCloud
 
 on:
   push:
-    branches: [master]
+    branches: [master, prompting-system]
   pull_request:
     branches: [master]
+  workflow_dispatch:   # buton de rulare manuală din tab-ul Actions
 
 env:
   # TODO: completează cu valorile tale din SonarCloud (Administration → Update key / pagina proiectului).

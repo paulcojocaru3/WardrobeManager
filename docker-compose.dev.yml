@@ -49,7 +49,7 @@ services:
       FastApi__BaseUrl: "http://ml-api:8000"
       Ollama__BaseUrl: "http://host.docker.internal:11434"
       WeatherApi__Key: "${WEATHER_API_KEY}"
-      Jwt__Key: "${JWT_KEY:-dev-only-insecure-key-change-me-min-32-chars-long-0123456789}"
+      Jwt__Key: "${JWT_KEY:?JWT_KEY is required - set it in .env}"
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
     extra_hosts:

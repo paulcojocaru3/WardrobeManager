@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -120,5 +121,5 @@ public sealed class OutfitsController(
     }
 
     public record ParsePromptRequest(string Prompt);
-    public record OutfitFeedbackRequest(Guid GenerationId, List<OutfitFeedbackItem> Items);
+    public record OutfitFeedbackRequest([property: JsonRequired] Guid GenerationId, List<OutfitFeedbackItem> Items);
 }
