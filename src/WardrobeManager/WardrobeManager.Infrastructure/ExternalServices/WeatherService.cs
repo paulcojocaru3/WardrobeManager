@@ -99,6 +99,17 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
 
     public async Task<List<DailyForecast>> GetForecastAsync(string city, int days, DateTime? startDate = null, CancellationToken ct = default)
     {
+        // Clamp the user-supplied day count: the daily API serves at most 16 days,
+        // and bounding it keeps the loop below from being driven by untrusted input.
+        if (days < 1)
+        {
+            days = 1;
+        }
+        if (days > 16)
+        {
+            days = 16;
+        }
+
         DateTime start;
         if (startDate.HasValue)
         {
