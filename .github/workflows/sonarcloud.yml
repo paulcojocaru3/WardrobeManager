@@ -12,6 +12,7 @@ env:
   # SONAR_PROJECT_KEY = de regulă "<org>_<nume-repo>".
   SONAR_ORG: paulcojocaru3
   SONAR_PROJECT_KEY: paulcojocaru3_WardrobeManager
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
   analyze:
@@ -46,23 +47,28 @@ jobs:
 
       # begin → build → test(+coverage) → end. Docker e disponibil pe runner,
       # deci testele de integrare TestContainers rulează normal.
-      - name: Analyze
+      - name: Analyze (or build/test when Sonar is unavailable)
         working-directory: src/WardrobeManager
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet sonarscanner begin \
-            /k:"${{ env.SONAR_PROJECT_KEY }}" \
-            /o:"${{ env.SONAR_ORG }}" \
-            /d:sonar.token="$SONAR_TOKEN" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
-            /d:sonar.scanner.scanAll=false \
-            /d:sonar.coverage.exclusions="**/Migrations/**,**/Program.cs" \
-            /d:sonar.qualitygate.wait=true
+          if [ -n "$SONAR_TOKEN" ]; then
+            export PATH="$PATH:$HOME/.dotnet/tools"
+            dotnet sonarscanner begin \
+              /k:"${{ env.SONAR_PROJECT_KEY }}" \
+              /o:"${{ env.SONAR_ORG }}" \
+              /d:sonar.token="$SONAR_TOKEN" \
+              /d:sonar.host.url="https://sonarcloud.io" \
+              /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
+              /d:sonar.scanner.scanAll=false \
+              /d:sonar.coverage.exclusions="**/Migrations/**,**/Program.cs" \
+              /d:sonar.qualitygate.wait=true
 
-          dotnet build WardrobeManager.sln
-          dotnet test WardrobeManager.Tests/WardrobeManager.Tests.csproj \
-            --no-build --settings coverlet.runsettings
-          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+            dotnet build WardrobeManager.sln
+            dotnet test WardrobeManager.Tests/WardrobeManager.Tests.csproj \
+              --no-build --settings coverlet.runsettings
+            dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+          else
+            echo "SONAR_TOKEN is not configured; running build/test without SonarCloud analysis."
+            dotnet build WardrobeManager.sln
+            dotnet test WardrobeManager.Tests/WardrobeManager.Tests.csproj \
+              --settings coverlet.runsettings
+          fi
