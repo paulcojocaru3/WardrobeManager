@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -47,7 +48,7 @@ public sealed class PlannerEventsController : ControllerBase
         return Ok(result);
     }
 
-    public record CreatePlannerEventRequest(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string>? PreferredStyles = null);
+    public record CreatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null);
 
     [HttpPost]
     public async Task<ActionResult<Guid>> CreatePlannerEvent([FromBody] CreatePlannerEventRequest request, CancellationToken ct)
@@ -63,7 +64,7 @@ public sealed class PlannerEventsController : ControllerBase
         return Ok(result);
     }
 
-    public record UpdatePlannerEventRequest(Guid UserId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string>? PreferredStyles = null);
+    public record UpdatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null);
 
     [HttpPut("{plannerEventId}")]
     public async Task<IActionResult> UpdatePlannerEvent(Guid plannerEventId, [FromBody] UpdatePlannerEventRequest request, CancellationToken ct)
@@ -113,7 +114,7 @@ public sealed class PlannerEventsController : ControllerBase
         return NoContent();
     }
 
-    public record AddEventItineraryRequest(Guid UserId, Guid OutfitId, DateTime Date, string Moment);
+    public record AddEventItineraryRequest([property: JsonRequired] Guid OutfitId, [property: JsonRequired] DateTime Date, string Moment);
 
     [HttpPost("{plannerEventId}/itineraries")]
     public async Task<ActionResult<Guid>> AddEventItinerary(Guid plannerEventId, [FromBody] AddEventItineraryRequest request, CancellationToken ct)
@@ -137,11 +138,9 @@ public sealed class PlannerEventsController : ControllerBase
         return NoContent();
     }
 
-    public record GenerateEventOutfitsRequest(Guid UserId);
-
     [HttpPost("{plannerEventId}/generate-outfits")]
     [ProducesResponseType(typeof(GenerateEventOutfitsResult), StatusCodes.Status200OK)]
-    public async Task<ActionResult<GenerateEventOutfitsResult>> GenerateEventOutfits(Guid plannerEventId, [FromBody] GenerateEventOutfitsRequest request, CancellationToken ct)
+    public async Task<ActionResult<GenerateEventOutfitsResult>> GenerateEventOutfits(Guid plannerEventId, CancellationToken ct)
     {
         var command = new GenerateEventOutfitsCommand(User.GetUserId(), plannerEventId);
         var result = await _mediator.Send(command, ct);
@@ -149,7 +148,7 @@ public sealed class PlannerEventsController : ControllerBase
     }
 
     [HttpPost("{plannerEventId}/itineraries/{itineraryId}/regenerate")]
-    public async Task<IActionResult> RegenerateEventItinerary(Guid plannerEventId, Guid itineraryId, [FromBody] GenerateEventOutfitsRequest request, CancellationToken ct)
+    public async Task<IActionResult> RegenerateEventItinerary(Guid plannerEventId, Guid itineraryId, CancellationToken ct)
     {
         var command = new RegenerateEventItineraryOutfitCommand(User.GetUserId(), plannerEventId, itineraryId);
         var result = await _mediator.Send(command, ct);
@@ -162,7 +161,7 @@ public sealed class PlannerEventsController : ControllerBase
         return NoContent();
     }
 
-    public record UpdateEventItineraryRequest(Guid UserId, Guid OutfitId, DateTime Date, string Moment);
+    public record UpdateEventItineraryRequest([property: JsonRequired] Guid OutfitId, [property: JsonRequired] DateTime Date, string Moment);
 
     [HttpPut("{plannerEventId}/itineraries/{itineraryId}")]
     public async Task<IActionResult> UpdateEventItinerary(Guid plannerEventId, Guid itineraryId, [FromBody] UpdateEventItineraryRequest request, CancellationToken ct)

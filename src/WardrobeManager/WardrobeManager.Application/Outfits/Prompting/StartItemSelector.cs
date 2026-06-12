@@ -143,7 +143,8 @@ public sealed class StartItemSelector(
             na += a[i] * (double)a[i];
             nb += b[i] * (double)b[i];
         }
-        if (na == 0 || nb == 0) return 0;
+        const double epsilon = 1e-12;
+        if (na < epsilon || nb < epsilon) return 0;
         return dot / (Math.Sqrt(na) * Math.Sqrt(nb));
     }
 

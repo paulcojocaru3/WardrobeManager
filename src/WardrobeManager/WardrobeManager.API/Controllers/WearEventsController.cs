@@ -50,10 +50,8 @@ public sealed class WearEventsController : ControllerBase
         return Ok(result);
     }
 
-    public record RecordWearRequest(Guid UserId);
-
     [HttpPost("outfit/{outfitId}")]
-    public async Task<IActionResult> RecordOutfitWear(Guid outfitId, [FromBody] RecordWearRequest request, CancellationToken ct)
+    public async Task<IActionResult> RecordOutfitWear(Guid outfitId, CancellationToken ct)
     {
         var command = new RecordOutfitWearCommand(User.GetUserId(), outfitId);
         var result = await _mediator.Send(command, ct);
