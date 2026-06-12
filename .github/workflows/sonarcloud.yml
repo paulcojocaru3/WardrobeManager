@@ -47,6 +47,7 @@ jobs:
       # begin → build → test(+coverage) → end. Docker e disponibil pe runner,
       # deci testele de integrare TestContainers rulează normal.
       - name: Analyze
+        if: ${{ secrets.SONAR_TOKEN != '' }}
         working-directory: src/WardrobeManager
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -66,3 +67,11 @@ jobs:
           dotnet test WardrobeManager.Tests/WardrobeManager.Tests.csproj \
             --no-build --settings coverlet.runsettings
           dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
+      - name: Build and test (without SonarCloud)
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        working-directory: src/WardrobeManager
+        run: |
+          dotnet build WardrobeManager.sln
+          dotnet test WardrobeManager.Tests/WardrobeManager.Tests.csproj \
+            --no-build --settings coverlet.runsettings
