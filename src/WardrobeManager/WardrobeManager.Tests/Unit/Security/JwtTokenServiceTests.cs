@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Infrastructure.Security;
@@ -8,7 +9,8 @@ namespace WardrobeManager.Tests.Unit.Security;
 [Trait("Category", "Unit")]
 public sealed class JwtTokenServiceTests
 {
-    private const string Key = "test-only-signing-key-at-least-32-chars-long-0123456789";
+    // Generated per run (not a hardcoded secret) so the signing key never appears as a literal.
+    private static readonly string Key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
 
     private static IConfiguration Config(params (string Key, string? Value)[] overrides)
     {

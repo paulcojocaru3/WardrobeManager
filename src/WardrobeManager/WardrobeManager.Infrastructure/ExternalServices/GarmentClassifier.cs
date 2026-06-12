@@ -29,7 +29,7 @@ public sealed class GarmentClassifier : IGarmentClassifier
         var firstPos = new Dictionary<string, int>();
         foreach (var (keyword, subType) in _rules)
         {
-            var m = Regex.Match(text, $@"\b{Regex.Escape(keyword)}\b", RegexOptions.CultureInvariant);
+            var m = Regex.Match(text, $@"\b{Regex.Escape(keyword)}\b", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (!m.Success) continue;
             if (!firstPos.TryGetValue(subType, out var existing) || m.Index < existing)
                 firstPos[subType] = m.Index;

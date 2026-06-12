@@ -10,6 +10,12 @@ wardrobe_web/dist/
 ml_api/__pycache__/
 **/*.pyc
 
+# Local secrets & data - never copy into the image
+.env
+**/.env
+*.dump
+eval/
+
 # VCS & misc
 .git/
 .gitignore
