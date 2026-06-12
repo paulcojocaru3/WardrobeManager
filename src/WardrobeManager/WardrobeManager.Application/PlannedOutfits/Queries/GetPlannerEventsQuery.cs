@@ -30,64 +30,12 @@ public sealed class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEve
 
         var now = DateTime.UtcNow;
 
-        foreach (var plannerEvent in plannerEvents.ToList())
-        {
-            // Auto-archive if EndDate is in the past and it's still Active
-            if (plannerEvent.Status == "Active" && plannerEvent.EndDate < now.Date)
-            {
-                plannerEvent.Status = "Archived";
-                plannerEvent.ArchivedAt = now;
-                await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);            }
-            // Auto-delete if Archived more than 30 days ago
-            else if (plannerEvent.Status == "Archived" && plannerEvent.ArchivedAt.HasValue && (now - plannerEvent.ArchivedAt.Value).TotalDays > 30)
-            {
-                await _plannerEventRepository.DeleteAsync(plannerEvent, cancellationToken);
-                plannerEvents.Remove(plannerEvent);            }
-        }
+        await PlannerEventProjection.ApplyLifecycleTransitionsAsync(plannerEvents, _plannerEventRepository, now, cancellationToken);
 
         // Filter to return only active events
         var activeEvents = plannerEvents.Where(p => p.Status == "Active").ToList();
 
-        var dtos = activeEvents.Select(p => new PlannerEventDto
-        {
-            Id = p.Id,
-            Name = p.Name,
-            Type = p.Type,
-            Location = p.Location,
-            StartDate = p.StartDate,
-            EndDate = p.EndDate,
-            Status = p.Status,
-            ArchivedAt = p.ArchivedAt,
-            PreferredStyles = p.PreferredStyles ?? new List<string>(),
-            Itineraries = p.Itineraries.Select(i => new EventItineraryDto
-            {
-                Id = i.Id,
-                OutfitId = i.OutfitId,
-                Date = i.Date,
-                Moment = i.Moment,
-                StoredTemperature = i.StoredTemperature,
-                Outfit = new OutfitDto(
-                    i.Outfit.Id,
-                    i.Outfit.Name,
-                    i.Outfit.IsAiGenerated,
-                    i.Outfit.IsFavorite,
-                    i.Outfit.Tags,
-                    i.Outfit.CreatedAt,
-                    i.Outfit.Items.Select(item => new ClothingItemDto(
-                        item.Id,
-                        item.Name,
-                        item.Type,
-                        item.SubType,
-                        item.Color,
-                        item.Gender,
-                        item.Season,
-                        item.Usage,
-                        item.ProcessedImageUrl,
-                        item.CreatedAt
-                    )).ToList()
-                )
-            }).ToList()
-        }).ToList();
+        var dtos = activeEvents.Select(PlannerEventProjection.ToDto).ToList();
 
         // Check for weather drift
         WeatherAlertDto? weatherAlert = null;

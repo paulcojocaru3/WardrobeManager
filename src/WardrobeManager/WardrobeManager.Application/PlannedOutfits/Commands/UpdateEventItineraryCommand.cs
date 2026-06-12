@@ -44,19 +44,10 @@ public sealed class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateE
         float? storedTemp = itinerary.StoredTemperature;
         if (itinerary.Date.Date != request.Date.Date)
         {
-            try
+            var resolved = await EventForecastHelper.TryGetTemperatureAsync(_weatherService, _logger, plannerEvent, request.Date, cancellationToken);
+            if (resolved.HasValue)
             {
-                var totalDays = (int)(plannerEvent.EndDate.Date - plannerEvent.StartDate.Date).TotalDays + 1;
-                var forecast = await _weatherService.GetForecastAsync(plannerEvent.Location, totalDays, plannerEvent.StartDate.Date, cancellationToken);
-                var dayForecast = forecast.FirstOrDefault(f => f.Date.Date == request.Date.Date);
-                if (dayForecast != null)
-                {
-                    storedTemp = dayForecast.Temperature;
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "Forecast unavailable for {Location}; keeping stored temperature.", plannerEvent.Location);
+                storedTemp = resolved.Value;
             }
         }
 

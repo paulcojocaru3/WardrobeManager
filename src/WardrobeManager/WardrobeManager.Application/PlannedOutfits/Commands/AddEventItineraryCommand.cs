@@ -36,21 +36,7 @@ public sealed class AddEventItineraryCommandHandler : IRequestHandler<AddEventIt
             throw new KeyNotFoundException("Outfit not found or does not belong to user.");
         }
 
-        float? storedTemp = null;
-        try
-        {
-            var totalDays = (int)(plannerEvent.EndDate.Date - plannerEvent.StartDate.Date).TotalDays + 1;
-            var forecast = await _weatherService.GetForecastAsync(plannerEvent.Location, totalDays, plannerEvent.StartDate.Date, cancellationToken);
-            var dayForecast = forecast.FirstOrDefault(f => f.Date.Date == request.Date.Date);
-            if (dayForecast != null)
-            {
-                storedTemp = dayForecast.Temperature;
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Forecast unavailable for {Location}; saving itinerary without temperature.", plannerEvent.Location);
-        }
+        var storedTemp = await EventForecastHelper.TryGetTemperatureAsync(_weatherService, _logger, plannerEvent, request.Date, cancellationToken);
 
         var itinerary = new EventItinerary
         {

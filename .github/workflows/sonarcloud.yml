@@ -61,6 +61,7 @@ jobs:
             /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
             /d:sonar.scanner.scanAll=false \
             /d:sonar.exclusions="**/Seeding/**" \
+            /d:sonar.cpd.exclusions="**/Migrations/**" \
             /d:sonar.coverage.exclusions="**/Migrations/**,**/WardrobeManager.API/**,**/WardrobeManager.Tests/**,**/DependencyInjection.cs,**/Seeding/**" \
             /d:sonar.qualitygate.wait=true
 
