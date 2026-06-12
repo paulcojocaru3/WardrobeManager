@@ -102,4 +102,37 @@ public sealed class WeatherServiceTests
         var sut = Service(new FakeHttpMessageHandler(_ => FakeHttpMessageHandler.Json(new { })), key: null);
         await Assert.ThrowsAsync<InvalidOperationException>(() => sut.GetForecastAsync("Paris", 3));
     }
+
+    private static FakeHttpMessageHandler OneDayForecast()
+    {
+        var unix = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).ToUnixTimeSeconds();
+        return new FakeHttpMessageHandler(_ => FakeHttpMessageHandler.Json(new
+        {
+            list = new[] { new { dt = unix, temp = new { day = 20.0 }, weather = new[] { new { main = "Clear" } } } },
+        }));
+    }
+
+    [Fact]
+    public async Task GetForecast_ClampsExcessiveDayCount_To16()
+    {
+        var result = await Service(OneDayForecast()).GetForecastAsync("Paris", 50);
+
+        Assert.Equal(16, result.Count); // clamped down from 50
+    }
+
+    [Fact]
+    public async Task GetForecast_ClampsZeroDayCount_ToOne()
+    {
+        var result = await Service(OneDayForecast()).GetForecastAsync("Paris", 0);
+
+        Assert.Single(result); // clamped up from 0 to 1
+    }
+
+    [Fact]
+    public async Task GetForecast_Throws_WhenForecastListEmpty()
+    {
+        var handler = new FakeHttpMessageHandler(_ => FakeHttpMessageHandler.Json(new { list = Array.Empty<object>() }));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => Service(handler).GetForecastAsync("Paris", 3));
+    }
 }
