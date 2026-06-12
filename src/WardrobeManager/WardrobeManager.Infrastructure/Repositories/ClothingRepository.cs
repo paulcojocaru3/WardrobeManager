@@ -7,7 +7,7 @@ using WardrobeManager.Infrastructure.Persistance;
 
 namespace WardrobeManager.Infrastructure.Repositories;
 
-public class ClothingRepository(ApplicationDbContext context) : IClothingRepository
+public sealed class ClothingRepository(ApplicationDbContext context) : IClothingRepository
 {
     public async Task AddAsync(ClothingItem item, CancellationToken ct = default)
     {
@@ -28,7 +28,9 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
 
     public async Task<ClothingItem?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
+        // AsSplitQuery: two collection Includes would otherwise produce an Outfits×WearEvents Cartesian product.
         return await context.ClothingItems
+            .AsSplitQuery()
             .Include(i => i.Outfits)
             .Include(i => i.WearEvents)
             .FirstOrDefaultAsync(i => i.Id == id, ct);
@@ -43,22 +45,32 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
 
     public async Task<List<ClothingItem>> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
     {
+        // Read-only listing — no change tracking needed.
         return await context.ClothingItems
+            .AsNoTracking()
             .Where(i => i.UserId == userId)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync(ct);
     }
 
-    public async Task<List<(ClothingItem Item, double Similarity)>> GetSimilarItemsAsync(Guid userId, float[] vector, ClothingType? type = null, int limit = 10, double? threshold = null, CancellationToken ct = default)
+    public async Task<List<(ClothingItem Item, double Similarity)>> GetSimilarItemsAsync(Guid userId, float[] vector, ClothingType? type = null, int limit = 10, double? threshold = null, string? gender = null, CancellationToken ct = default)
     {
         var pgVector = new Pgvector.Vector(vector);
 
+        // Read-only candidate scoring — no change tracking on this hot path.
         var query = context.ClothingItems
+            .AsNoTracking()
             .Where(i => i.UserId == userId && i.Embedding != null);
 
         if (type.HasValue)
         {
             query = query.Where(i => i.Type == type.Value);
+        }
+
+        // Gender hard filter: only same-gender, Unisex, or unspecified items.
+        if (!string.IsNullOrEmpty(gender))
+        {
+            query = query.Where(i => i.Gender == null || i.Gender == gender || i.Gender == "Unisex");
         }
 
         // Order directly by distance to ensure HNSW index usage
@@ -80,6 +92,28 @@ public class ClothingRepository(ApplicationDbContext context) : IClothingReposit
         }
 
         return finalResults.ToList();
+    }
+
+    public async Task<Dictionary<Guid, DateTime>> GetWearRecencyAsync(Guid userId, CancellationToken ct = default)
+    {
+        return await context.WearEvents
+            .Where(w => w.UserId == userId)
+            .GroupBy(w => w.ClothingItemId)
+            .Select(g => new { ItemId = g.Key, LastWorn = g.Max(w => w.WearDate) })
+            .ToDictionaryAsync(x => x.ItemId, x => x.LastWorn, ct);
+    }
+
+    public async Task<List<ClothingItem>> GetMissingSubTypeWithEmbeddingAsync(Guid userId, CancellationToken ct = default)
+    {
+        return await context.ClothingItems
+            .Where(c => c.UserId == userId && c.SubType == null && c.Embedding != null)
+            .ToListAsync(ct);
+    }
+
+    public async Task UpdateRangeAsync(IReadOnlyCollection<ClothingItem> items, CancellationToken ct = default)
+    {
+        context.ClothingItems.UpdateRange(items);
+        await context.SaveChangesAsync(ct);
     }
 
     public IQueryable<ClothingItem> Query()

@@ -3,7 +3,7 @@ using WardrobeManager.Application.Outfits.Commands;
 
 namespace WardrobeManager.Application.Outfits.Validators;
 
-public class UpdateOutfitCommandValidator : AbstractValidator<UpdateOutfitCommand>
+public sealed class UpdateOutfitCommandValidator : AbstractValidator<UpdateOutfitCommand>
 {
     public UpdateOutfitCommandValidator()
     {

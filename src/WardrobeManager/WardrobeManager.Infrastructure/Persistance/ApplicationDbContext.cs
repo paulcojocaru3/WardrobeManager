@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using WardrobeManager.Domain.Entities;
 using System.Linq;
+using System.Text.Json;
 
 namespace WardrobeManager.Infrastructure.Persistance;
 
@@ -16,6 +17,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<PlannerEvent> PlannerEvents { get; set; } = null!;
     public DbSet<EventItinerary> EventItineraries { get; set; } = null!;
     public DbSet<Recommendation> Recommendations { get; set; } = null!;
+    public DbSet<OutfitFeedback> OutfitFeedbacks { get; set; } = null!;
+    public DbSet<UserEvaluatorWeights> UserEvaluatorWeights { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -121,6 +124,38 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.User)
                   .WithMany()
                   .HasForeignKey(e => e.UserId);
+        });
+
+        // Reusable jsonb <-> Dictionary<string,double> converter/comparer.
+        var dictConverter = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<Dictionary<string, double>, string>(
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Deserialize<Dictionary<string, double>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, double>());
+
+        var dictComparer = new ValueComparer<Dictionary<string, double>>(
+            (a, b) => a != null && b != null && a.Count == b.Count && !a.Except(b).Any(),
+            c => c.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key.GetHashCode(), kv.Value.GetHashCode())),
+            c => new Dictionary<string, double>(c));
+
+        // OutfitFeedback Configuration
+        modelBuilder.Entity<OutfitFeedback>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.GenerationId });
+            entity.Property(e => e.Action).HasConversion<string>();
+            entity.Property(e => e.EvaluatorScores)
+                  .HasColumnType("jsonb")
+                  .HasConversion(dictConverter)
+                  .Metadata.SetValueComparer(dictComparer);
+        });
+
+        // UserEvaluatorWeights Configuration (one row per user)
+        modelBuilder.Entity<UserEvaluatorWeights>(entity =>
+        {
+            entity.HasKey(e => e.UserId);
+            entity.Property(e => e.Weights)
+                  .HasColumnType("jsonb")
+                  .HasConversion(dictConverter)
+                  .Metadata.SetValueComparer(dictComparer);
         });
     }
 }

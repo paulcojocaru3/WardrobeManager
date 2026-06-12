@@ -3,7 +3,7 @@ using WardrobeManager.Application.Outfits.Queries;
 
 namespace WardrobeManager.Application.Outfits.Validators;
 
-public class GetOutfitsQueryValidator : AbstractValidator<GetOutfitsQuery>
+public sealed class GetOutfitsQueryValidator : AbstractValidator<GetOutfitsQuery>
 {
     public GetOutfitsQueryValidator()
     {

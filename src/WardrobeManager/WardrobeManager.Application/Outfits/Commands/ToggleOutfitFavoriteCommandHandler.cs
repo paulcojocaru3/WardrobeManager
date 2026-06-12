@@ -3,7 +3,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public class ToggleOutfitFavoriteCommandHandler(IOutfitRepository outfitRepository) : IRequestHandler<ToggleOutfitFavoriteCommand, bool>
+public sealed class ToggleOutfitFavoriteCommandHandler(IOutfitRepository outfitRepository) : IRequestHandler<ToggleOutfitFavoriteCommand, bool>
 {
     public async Task<bool> Handle(ToggleOutfitFavoriteCommand request, CancellationToken ct)
     {

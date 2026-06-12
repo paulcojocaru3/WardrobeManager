@@ -1,12 +1,14 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
+using WardrobeManager.Application.Outfits.Generation;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
 public record RegenerateEventItineraryOutfitCommand(Guid UserId, Guid PlannerEventId, Guid ItineraryId) : IRequest<bool>;
 
-public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<RegenerateEventItineraryOutfitCommand, bool>
+public sealed class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<RegenerateEventItineraryOutfitCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IOutfitRepository _outfitRepository;
@@ -14,6 +16,7 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
     private readonly IClothingRepository _clothingRepository;
     private readonly IEventOutfitPlanningService _eventOutfitPlanningService;
     private readonly IWeatherService _weatherService;
+    private readonly ILogger<RegenerateEventItineraryOutfitCommandHandler> _logger;
 
     public RegenerateEventItineraryOutfitCommandHandler(
         IPlannerEventRepository plannerEventRepository,
@@ -21,7 +24,8 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
         IOutfitGenerator outfitGenerator,
         IClothingRepository clothingRepository,
         IEventOutfitPlanningService eventOutfitPlanningService,
-        IWeatherService weatherService)
+        IWeatherService weatherService,
+        ILogger<RegenerateEventItineraryOutfitCommandHandler> logger)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
@@ -29,6 +33,7 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
         _clothingRepository = clothingRepository;
         _eventOutfitPlanningService = eventOutfitPlanningService;
         _weatherService = weatherService;
+        _logger = logger;
     }
 
     public async Task<bool> Handle(RegenerateEventItineraryOutfitCommand request, CancellationToken ct)
@@ -62,14 +67,22 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
                 weather = new WeatherData(dayForecast.Temperature, dayForecast.Condition, dayForecast.SeasonSuggestion);
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // fallback to null weather
+            _logger.LogWarning(ex, "Forecast unavailable for {Location}; regenerating without weather.", plannerEvent.Location);
         }
 
         var (style, _) = _eventOutfitPlanningService.ResolveDayPlan(plannerEvent.Type, dayIndex, weather, itinerary.Moment, plannerEvent.PreferredStyles);
 
-        var excludedItemIds = itinerary.Outfit?.Items.Select(i => i.Id).ToList() ?? new List<Guid>();
+        List<Guid> excludedItemIds;
+        if (itinerary.Outfit != null)
+        {
+            excludedItemIds = itinerary.Outfit.Items.Select(i => i.Id).ToList();
+        }
+        else
+        {
+            excludedItemIds = new List<Guid>();
+        }
         var startItem = await _eventOutfitPlanningService.SelectStartItemAsync(request.UserId, style, weather, excludedItemIds, ct);
         if (startItem == null || startItem.Embedding == null)
         {
@@ -79,10 +92,13 @@ public class RegenerateEventItineraryOutfitCommandHandler : IRequestHandler<Rege
         var aiResult = await _outfitGenerator.GenerateAiOutfitAsync(
             request.UserId,
             startItem.Id,
-            threshold: 0.4,
-            weatherData: weather,
-            style: style,
-            ct: ct);
+            new OutfitGenerationOptions
+            {
+                Threshold = 0.4,
+                Weather = weather,
+                Style = style
+            },
+            ct);
 
         var itemIds = aiResult.SelectedItems.Select(si => si.Id).ToList();
         var items = await _clothingRepository.GetByIdsAsync(itemIds, ct);

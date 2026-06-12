@@ -1,5 +1,5 @@
 using MediatR;
-using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Users.Dtos;
 
 namespace WardrobeManager.Application.Users.Commands;
 
@@ -9,4 +9,4 @@ public record UpdateUserCommand(
     string? Email,
     string? NewPassword,
     string CurrentPassword
-) : IRequest<User>;
+) : IRequest<UserDto>;

@@ -1,27 +1,33 @@
 using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Users.Dtos;
 
 namespace WardrobeManager.Application.Users.Commands;
 
-public class UpdateUserCommandHandler(
+public sealed class UpdateUserCommandHandler(
     IUserRepository userRepository,
+    IPasswordHasher passwordHasher,
     IValidator<UpdateUserCommand> validator
-) : IRequestHandler<UpdateUserCommand, User>
+) : IRequestHandler<UpdateUserCommand, UserDto>
 {
-    public async Task<User> Handle(UpdateUserCommand request, CancellationToken ct)
+    public async Task<UserDto> Handle(UpdateUserCommand request, CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(request, ct);
 
-        var user = await userRepository.GetByIdAsync(request.UserId, ct)
-            ?? throw new Exception("User not found.");
-
-        if (request.NewPassword != null)
+        var user = await userRepository.GetByIdAsync(request.UserId, ct);
+        if (user == null)
         {
-            if (string.IsNullOrEmpty(request.CurrentPassword) || user.PasswordHash != request.CurrentPassword)
-                throw new Exception("Current password is incorrect.");
+            throw new Exception("User not found.");
         }
+
+        // Any credential change requires proving knowledge of the current password.
+        var changingCredentials = request.NewPassword != null
+            || (request.Email != null && request.Email != user.Email)
+            || (request.Username != null && request.Username != user.Username);
+
+        if (changingCredentials && !passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+            throw new Exception("Current password is incorrect.");
 
         if (request.Username != null && request.Username != user.Username)
         {
@@ -38,9 +44,9 @@ public class UpdateUserCommandHandler(
         }
 
         if (request.NewPassword != null)
-            user.PasswordHash = request.NewPassword!;
+            user.PasswordHash = passwordHasher.Hash(request.NewPassword);
 
         await userRepository.UpdateAsync(user, ct);
-        return user;
+        return UserDto.FromEntity(user);
     }
 }

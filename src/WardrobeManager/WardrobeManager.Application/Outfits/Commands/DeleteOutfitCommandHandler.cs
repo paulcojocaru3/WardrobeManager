@@ -4,7 +4,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public class DeleteOutfitCommandHandler(
+public sealed class DeleteOutfitCommandHandler(
     IOutfitRepository outfitRepository,
     IValidator<DeleteOutfitCommand> validator) : IRequestHandler<DeleteOutfitCommand, bool>
 {

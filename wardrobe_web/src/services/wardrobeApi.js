@@ -5,6 +5,8 @@ export const authApi = {
   login: (payload) => apiClient.post('/users/login', payload),
   register: (payload) => apiClient.post('/users/register', payload),
   updateUser: (userId, payload) => apiClient.put(`/users/${userId}`, payload),
+  updatePreferences: (userId, payload) => apiClient.put(`/users/${userId}/preferences`, payload),
+  deleteUser: (userId) => apiClient.delete(`/users/${userId}`),
 };
 
 export const outfitsApi = {
@@ -20,10 +22,12 @@ export const outfitsApi = {
   toggleFavorite: (id) => apiClient.put(`/outfits/${id}/favorite`),
   remove: (id) => apiClient.delete(`/outfits/${id}`),
   recordWear: (outfitId, payload) => apiClient.post(`/wear-events/outfit/${outfitId}`, payload),
+  recordFeedback: (generationId, items) => apiClient.post('/outfits/feedback', { generationId, items }),
 };
 
 export const clothingApi = {
   getByUser: (userId) => apiClient.get(`/clothing/${userId}`),
+  getSubtypes: () => apiClient.get('/clothing/subtypes'),
   process: (formData) => apiClient.post('/clothing/process', formData),
   add: (payload) => apiClient.post('/clothing/add', payload),
   update: (id, payload) => apiClient.put(`/clothing/${id}`, payload),

@@ -3,7 +3,7 @@ using WardrobeManager.Application.Users.Commands;
 
 namespace WardrobeManager.Application.Users.Validators;
 
-public class RegisterUserCommandValidator : AbstractValidator<RegisterUserCommand>
+public sealed class RegisterUserCommandValidator : AbstractValidator<RegisterUserCommand>
 {
     public RegisterUserCommandValidator()
     {
@@ -15,8 +15,10 @@ public class RegisterUserCommandValidator : AbstractValidator<RegisterUserComman
             .NotEmpty().WithMessage("Email is required.")
             .EmailAddress().WithMessage("A valid email address is required.");
 
-        RuleFor(x => x.PasswordHash)
+        RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required.")
-            .MinimumLength(6).WithMessage("Password must be at least 6 characters long.");
+            .MinimumLength(8).WithMessage("Password must be at least 8 characters long.")
+            .Matches("[A-Za-z]").WithMessage("Password must contain at least one letter.")
+            .Matches("[0-9]").WithMessage("Password must contain at least one number.");
     }
 }

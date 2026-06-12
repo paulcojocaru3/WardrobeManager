@@ -12,10 +12,11 @@ public record UpdateClothingCommand(
     string? Color,
     string? Gender,
     string? Season,
-    string? Usage
+    string? Usage,
+    string? SubType = null
 ) : IRequest<bool>;
 
-public class UpdateClothingCommandHandler : IRequestHandler<UpdateClothingCommand, bool>
+public sealed class UpdateClothingCommandHandler : IRequestHandler<UpdateClothingCommand, bool>
 {
     private readonly IClothingRepository _repository;
 
@@ -31,6 +32,8 @@ public class UpdateClothingCommandHandler : IRequestHandler<UpdateClothingComman
 
         item.Name = request.Name;
         item.Type = request.Type;
+        if (request.SubType != null)
+            item.SubType = string.IsNullOrWhiteSpace(request.SubType) ? null : request.SubType.Trim().ToLowerInvariant();
         item.Color = request.Color;
         item.Gender = request.Gender;
         item.Season = request.Season;

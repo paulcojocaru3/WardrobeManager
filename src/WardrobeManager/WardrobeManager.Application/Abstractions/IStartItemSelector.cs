@@ -3,11 +3,8 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Abstractions;
 
-/// <summary>
-/// Chooses the seed clothing item an outfit is generated around, based on the
-/// parsed prompt intent (semantic match) instead of a random pick.
-/// </summary>
+// picks the seed item an outfit is built around, from the parsed prompt intent
 public interface IStartItemSelector
 {
-    Task<ClothingItem?> SelectAsync(Guid userId, PromptIntent intent, CancellationToken ct = default);
+    Task<ClothingItem?> SelectAsync(Guid userId, PromptIntent intent, IReadOnlyCollection<Guid>? excludedItemIds = null, WeatherData? weather = null, CancellationToken ct = default);
 }

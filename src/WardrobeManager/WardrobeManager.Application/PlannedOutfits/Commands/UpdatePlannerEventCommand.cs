@@ -6,22 +6,7 @@ namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
 public record UpdatePlannerEventCommand(Guid UserId, Guid PlannerEventId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string> PreferredStyles) : IRequest<bool>;
 
-public class UpdatePlannerEventCommandValidator : AbstractValidator<UpdatePlannerEventCommand>
-{
-    public UpdatePlannerEventCommandValidator()
-    {
-        RuleFor(x => x.UserId).NotEmpty();
-        RuleFor(x => x.PlannerEventId).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
-        RuleFor(x => x.Type).NotEmpty().MaximumLength(50);
-        RuleFor(x => x.Location).NotEmpty().MaximumLength(120);
-        RuleFor(x => x.EndDate.Date)
-            .GreaterThanOrEqualTo(x => x.StartDate.Date)
-            .WithMessage("End date must be greater than or equal to start date.");
-    }
-}
-
-public class UpdatePlannerEventCommandHandler : IRequestHandler<UpdatePlannerEventCommand, bool>
+public sealed class UpdatePlannerEventCommandHandler : IRequestHandler<UpdatePlannerEventCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IValidator<UpdatePlannerEventCommand> _validator;
@@ -49,7 +34,14 @@ public class UpdatePlannerEventCommandHandler : IRequestHandler<UpdatePlannerEve
         plannerEvent.Location = request.Location;
         plannerEvent.StartDate = request.StartDate.Date;
         plannerEvent.EndDate = request.EndDate.Date;
-        plannerEvent.PreferredStyles = request.PreferredStyles ?? new List<string>();
+        if (request.PreferredStyles != null)
+        {
+            plannerEvent.PreferredStyles = request.PreferredStyles;
+        }
+        else
+        {
+            plannerEvent.PreferredStyles = new List<string>();
+        }
 
         await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);
 

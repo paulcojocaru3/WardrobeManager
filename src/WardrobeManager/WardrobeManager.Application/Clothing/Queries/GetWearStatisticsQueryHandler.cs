@@ -1,12 +1,14 @@
+using FluentValidation;
+using FluentValidation.Results;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Clothing.Queries;
 
-public record GetWearStatisticsQuery(Guid UserId, DateTime? StartDateUtc = null, DateTime? EndDateUtc = null) : IRequest<WearStatisticsDto>;
+public record GetWearStatisticsQuery(Guid UserId, string? Range = null, DateTime? CustomStart = null, DateTime? CustomEnd = null) : IRequest<WearStatisticsDto>;
 
-public class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQuery, WearStatisticsDto>
+public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQuery, WearStatisticsDto>
 {
     private readonly IWearEventRepository _wearRepository;
     private readonly IClothingRepository _clothingRepository;
@@ -24,15 +26,31 @@ public class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQu
 
     public async Task<WearStatisticsDto> Handle(GetWearStatisticsQuery request, CancellationToken ct)
     {
-        var allEvents = (await _wearRepository.GetAllByUserIdAsync(request.UserId)).ToList();
+        var window = StatsWindowResolver.Resolve(request.Range, request.CustomStart, request.CustomEnd);
+        if (!window.IsValid)
+        {
+            throw new ValidationException(new[] { new ValidationFailure("range", window.Error!) });
+        }
+
+        // Push the date window to SQL when bounded; only fetch the full history for "all time".
+        IEnumerable<WearEvent> events;
+        if (window.StartUtc.HasValue && window.EndUtc.HasValue)
+        {
+            events = await _wearRepository.GetByUserIdAsync(request.UserId, window.StartUtc.Value, window.EndUtc.Value, ct);
+        }
+        else
+        {
+            events = await _wearRepository.GetAllByUserIdAsync(request.UserId, ct);
+        }
+        var allEvents = events.ToList();
         var allClothes = (await _clothingRepository.GetByUserIdAsync(request.UserId, ct)).ToList();
         var allOutfits = await _outfitRepository.GetByUserIdAsync(request.UserId, ct);
 
         var dto = new WearStatisticsDto();
-        var filteredEvents = ApplyTimeWindowFilter(allEvents, request.StartDateUtc, request.EndDateUtc).ToList();
+        var filteredEvents = ApplyTimeWindowFilter(allEvents, window.StartUtc, window.EndUtc).ToList();
         var sessionGroups = GroupBySession(filteredEvents).ToList();
 
-        dto.Window = BuildStatsWindow(request.StartDateUtc, request.EndDateUtc);
+        dto.Window = BuildStatsWindow(window.StartUtc, window.EndUtc);
         dto.TotalWearEvents = filteredEvents.Count;
         dto.TotalWearSessions = sessionGroups.Count;
         dto.TotalDistinctWornItems = filteredEvents.Select(e => e.ClothingItemId).Distinct().Count();
@@ -222,8 +240,25 @@ public class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStatisticsQu
             };
         }
 
-        var startLabel = startDateUtc?.ToString("yyyy-MM-dd") ?? "start";
-        var endLabel = endDateUtc?.ToString("yyyy-MM-dd") ?? "today";
+        string startLabel;
+        if (startDateUtc.HasValue)
+        {
+            startLabel = startDateUtc.Value.ToString("yyyy-MM-dd");
+        }
+        else
+        {
+            startLabel = "start";
+        }
+
+        string endLabel;
+        if (endDateUtc.HasValue)
+        {
+            endLabel = endDateUtc.Value.ToString("yyyy-MM-dd");
+        }
+        else
+        {
+            endLabel = "today";
+        }
 
         return new StatsWindowDto
         {

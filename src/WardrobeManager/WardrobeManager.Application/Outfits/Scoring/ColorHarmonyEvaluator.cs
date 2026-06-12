@@ -1,42 +1,60 @@
 using System;
 using System.Linq;
 using WardrobeManager.Domain.Entities;
+using WardrobeManager.Domain.Enums;
 
 namespace WardrobeManager.Application.Outfits.Scoring;
 
-public class ColorHarmonyEvaluator : IOutfitEvaluator
+public sealed class ColorHarmonyEvaluator : IOutfitEvaluator
 {
-    public double Weight => 0.15; // 15% weight for color harmony
+    public string Name => "ColorHarmony";
+    public double Weight => 0.20;
 
-    public double Evaluate(ClothingItem candidate, OutfitGenerationContext context)
+    public double? Evaluate(ClothingItem candidate, OutfitGenerationContext context)
     {
-        if (string.IsNullOrEmpty(candidate.Color)) return 0.5;
+        if (string.IsNullOrWhiteSpace(candidate.Color)) return null; // abstain
 
-        double score = 0.8; // Generally good unless clashing
+        double score = 0.5;
+        bool candNeutral = ColorFamily.IsNeutral(candidate.Color);
+        string? candFamily = ColorFamily.FamilyOf(candidate.Color);
 
-        // Simple harmony logic: Avoid monochrome unless intentional set, neutral colors are safe.
-        string[] neutrals = { "black", "white", "gray", "grey", "navy", "beige", "brown", "tan" };
-        bool isCandidateNeutral = neutrals.Any(n => candidate.Color.Contains(n, StringComparison.OrdinalIgnoreCase));
+        // Co-ord / set bonus: a Top & Bottom sharing the exact color reads as deliberate.
+        var exactMatchBase = context.SelectedItems.FirstOrDefault(i =>
+            (i.Type == ClothingType.Top || i.Type == ClothingType.Bottom) &&
+            !string.IsNullOrEmpty(i.Color) &&
+            i.Color!.Equals(candidate.Color, StringComparison.OrdinalIgnoreCase));
 
-        int sameColorCount = 0;
-        foreach (var item in context.SelectedItems)
+        if (exactMatchBase != null)
         {
-            if (string.IsNullOrEmpty(item.Color)) continue;
+            if (candidate.Type == ClothingType.Top || candidate.Type == ClothingType.Bottom) score += 0.4;
+            if (candidate.Type == ClothingType.Shoes || candidate.Type == ClothingType.Accessory) score += 0.2;
+        }
 
-            if (item.Color.Equals(candidate.Color, StringComparison.OrdinalIgnoreCase))
+        // Hue-family discipline over the accent colors already chosen.
+        var accentFamilies = context.SelectedItems
+            .Select(i => ColorFamily.FamilyOf(i.Color))
+            .Where(fam => fam != null)
+            .Select(fam => fam!)
+            .Distinct()
+            .ToList();
+
+        if (candNeutral || candFamily == null)
+        {
+            score += 0.2; // neutral pairs with anything
+        }
+        else if (accentFamilies.Contains(candFamily))
+        {
+            score += 0.15; // same accent family -> cohesive / analogous
+        }
+        else
+        {
+            int totalAccents = accentFamilies.Count + 1; // a new accent family
+            score += totalAccents switch
             {
-                sameColorCount++;
-            }
-        }
-
-        // Penalize if we have too much of the same non-neutral color
-        if (sameColorCount > 0 && !isCandidateNeutral)
-        {
-            score -= (0.4 * sameColorCount); // Significant penalty for each matching non-neutral color to promote variety
-        }
-        else if (isCandidateNeutral && sameColorCount == 0)
-        {
-            score += 0.2; // Boost neutral colors slightly when they contrast
+                <= 2 => 0.1,  // up to two accents -> fine
+                3 => -0.3,    // a third strong color -> risky
+                _ => -0.6     // clown effect
+            };
         }
 
         return Math.Clamp(score, -1.0, 1.0);

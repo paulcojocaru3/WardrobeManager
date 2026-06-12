@@ -1,6 +1,6 @@
 using MediatR;
-using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Users.Dtos;
 
 namespace WardrobeManager.Application.Users.Queries;
 
-public record LoginUserQuery(string Email, string Password) : IRequest<User?>;
+public record LoginUserQuery(string Email, string Password) : IRequest<AuthResponse?>;

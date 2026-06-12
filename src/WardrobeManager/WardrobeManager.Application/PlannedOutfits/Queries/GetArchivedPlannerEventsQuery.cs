@@ -7,7 +7,7 @@ namespace WardrobeManager.Application.PlannedOutfits.Queries;
 
 public record GetArchivedPlannerEventsQuery(Guid UserId) : IRequest<IEnumerable<PlannerEventDto>>;
 
-public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedPlannerEventsQuery, IEnumerable<PlannerEventDto>>
+public sealed class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedPlannerEventsQuery, IEnumerable<PlannerEventDto>>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
 
@@ -21,7 +21,6 @@ public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedP
         var plannerEvents = (await _plannerEventRepository.GetByUserIdAsync(request.UserId, cancellationToken)).ToList();
 
         var now = DateTime.UtcNow;
-        bool hasChanges = false;
 
         foreach (var plannerEvent in plannerEvents.ToList())
         {
@@ -30,16 +29,12 @@ public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedP
             {
                 plannerEvent.Status = "Archived";
                 plannerEvent.ArchivedAt = now;
-                await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);
-                hasChanges = true;
-            }
+                await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);            }
             // Auto-delete if Archived more than 30 days ago
             else if (plannerEvent.Status == "Archived" && plannerEvent.ArchivedAt.HasValue && (now - plannerEvent.ArchivedAt.Value).TotalDays > 30)
             {
                 await _plannerEventRepository.DeleteAsync(plannerEvent, cancellationToken);
-                plannerEvents.Remove(plannerEvent);
-                hasChanges = true;
-            }
+                plannerEvents.Remove(plannerEvent);            }
         }
 
         // Filter to return only archived events
@@ -74,6 +69,7 @@ public class GetArchivedPlannerEventsQueryHandler : IRequestHandler<GetArchivedP
                         item.Id,
                         item.Name,
                         item.Type,
+                        item.SubType,
                         item.Color,
                         item.Gender,
                         item.Season,

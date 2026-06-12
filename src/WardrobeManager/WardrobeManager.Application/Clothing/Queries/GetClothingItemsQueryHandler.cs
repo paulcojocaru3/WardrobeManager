@@ -4,7 +4,7 @@ using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Clothing.Queries;
 
-public class GetClothingItemsQueryHandler(IClothingRepository clothingRepository, IValidator<GetClothingItemsQuery> validator) : IRequestHandler<GetClothingItemsQuery, List<ClothingItemDto>>
+public sealed class GetClothingItemsQueryHandler(IClothingRepository clothingRepository, IValidator<GetClothingItemsQuery> validator) : IRequestHandler<GetClothingItemsQuery, List<ClothingItemDto>>
 {
     public async Task<List<ClothingItemDto>> Handle(GetClothingItemsQuery request, CancellationToken ct)
     {
@@ -16,6 +16,7 @@ public class GetClothingItemsQueryHandler(IClothingRepository clothingRepository
             i.Id,
             i.Name,
             i.Type,
+            i.SubType,
             i.Color,
             i.Gender,
             i.Season,

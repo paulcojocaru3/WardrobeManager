@@ -2,7 +2,7 @@ using WardrobeManager.Application.Outfits.Queries;
 
 namespace WardrobeManager.Application.PlannedOutfits.Queries;
 
-public class EventItineraryDto
+public sealed class EventItineraryDto
 {
     public Guid Id { get; set; }
     public Guid OutfitId { get; set; }
@@ -12,7 +12,7 @@ public class EventItineraryDto
     public OutfitDto Outfit { get; set; } = null!;
 }
 
-public class PlannerEventDto
+public sealed class PlannerEventDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;

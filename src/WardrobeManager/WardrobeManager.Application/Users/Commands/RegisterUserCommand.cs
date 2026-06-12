@@ -1,6 +1,6 @@
 using MediatR;
-using WardrobeManager.Domain.Entities;
+using WardrobeManager.Application.Users.Dtos;
 
 namespace WardrobeManager.Application.Users.Commands;
 
-public record RegisterUserCommand(string Email, string PasswordHash, string Username) : IRequest<User>;
+public record RegisterUserCommand(string Email, string Password, string Username) : IRequest<AuthResponse>;

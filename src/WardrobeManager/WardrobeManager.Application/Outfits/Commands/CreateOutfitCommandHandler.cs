@@ -5,7 +5,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public class CreateOutfitCommandHandler(
+public sealed class CreateOutfitCommandHandler(
     IOutfitRepository outfitRepository, 
     IClothingRepository clothingRepository,
     IValidator<CreateOutfitCommand> validator) : IRequestHandler<CreateOutfitCommand, Guid>
@@ -14,12 +14,7 @@ public class CreateOutfitCommandHandler(
     {
         await validator.ValidateAndThrowAsync(request, ct);
 
-        var items = new List<ClothingItem>();
-        foreach (var id in request.ItemIds)
-        {
-            var item = await clothingRepository.GetByIdAsync(id, ct);
-            if (item != null) items.Add(item);
-        }
+        var items = await clothingRepository.GetByIdsAsync(request.ItemIds, ct);
 
         var outfit = new Outfit
         {

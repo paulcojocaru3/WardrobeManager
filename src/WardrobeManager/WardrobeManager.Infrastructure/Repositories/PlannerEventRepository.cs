@@ -5,7 +5,7 @@ using WardrobeManager.Infrastructure.Persistance;
 
 namespace WardrobeManager.Infrastructure.Repositories;
 
-public class PlannerEventRepository : IPlannerEventRepository
+public sealed class PlannerEventRepository : IPlannerEventRepository
 {
     private readonly ApplicationDbContext _context;
 
@@ -25,6 +25,7 @@ public class PlannerEventRepository : IPlannerEventRepository
 
     public async Task<IEnumerable<PlannerEvent>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        // Stays tracked: GetPlannerEventsQueryHandler mutates these (auto-archive) and saves.
         return await _context.PlannerEvents
             .Include(p => p.Itineraries)
                 .ThenInclude(i => i.Outfit)

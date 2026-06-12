@@ -1,21 +1,24 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
 public record UpdateEventItineraryCommand(Guid UserId, Guid PlannerEventId, Guid ItineraryId, Guid OutfitId, DateTime Date, string Moment) : IRequest<bool>;
 
-public class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateEventItineraryCommand, bool>
+public sealed class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateEventItineraryCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IOutfitRepository _outfitRepository;
     private readonly IWeatherService _weatherService;
+    private readonly ILogger<UpdateEventItineraryCommandHandler> _logger;
 
-    public UpdateEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository, IWeatherService weatherService)
+    public UpdateEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository, IWeatherService weatherService, ILogger<UpdateEventItineraryCommandHandler> logger)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
         _weatherService = weatherService;
+        _logger = logger;
     }
 
     public async Task<bool> Handle(UpdateEventItineraryCommand request, CancellationToken cancellationToken)
@@ -51,9 +54,9 @@ public class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateEventIti
                     storedTemp = dayForecast.Temperature;
                 }
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Ignore weather fetch errors
+                _logger.LogWarning(ex, "Forecast unavailable for {Location}; keeping stored temperature.", plannerEvent.Location);
             }
         }
 

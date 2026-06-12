@@ -5,7 +5,7 @@ using WardrobeManager.Infrastructure.Persistance;
 
 namespace WardrobeManager.Infrastructure.Repositories;
 
-public class UserRepository(ApplicationDbContext context) : IUserRepository
+public sealed class UserRepository(ApplicationDbContext context) : IUserRepository
 {
     public async Task AddAsync(User user, CancellationToken ct = default)
     {
@@ -16,6 +16,12 @@ public class UserRepository(ApplicationDbContext context) : IUserRepository
     public async Task UpdateAsync(User user, CancellationToken ct = default)
     {
         context.Users.Update(user);
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(User user, CancellationToken ct = default)
+    {
+        context.Users.Remove(user);
         await context.SaveChangesAsync(ct);
     }
 

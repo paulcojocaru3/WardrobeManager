@@ -1,5 +1,5 @@
 using MediatR;
-using WardrobeManager.Application.Outfits.Queries;
+using WardrobeManager.Application.Outfits.Generation;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 

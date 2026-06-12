@@ -44,6 +44,47 @@ const DEFAULT_STATS = {
 
 const TABS = ['overview', 'usage', 'style', 'outfits', 'timeline', 'diversity'];
 
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+
+// Animate a number from 0 → target on mount / when target changes.
+const useCountUp = (target, duration = 750) => {
+  const [val, setVal] = useState(target);
+  useEffect(() => {
+    if (prefersReducedMotion()) {
+      const id = requestAnimationFrame(() => setVal(target));
+      return () => cancelAnimationFrame(id);
+    }
+    let raf;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setVal(target * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else setVal(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return val;
+};
+
+// Pick legible label color (black/white) for a swatch background.
+const textOnColor = (hex) => {
+  if (typeof hex !== 'string' || hex[0] !== '#') return '#fff';
+  let h = hex.slice(1);
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (h.length !== 6) return '#fff';
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.62 ? '#161514' : '#ffffff';
+};
+
 const StatsSection = ({ userId }) => {
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [loading, setLoading] = useState(true);
@@ -134,20 +175,107 @@ const StatsSection = ({ userId }) => {
     return cells;
   }, [stats.wearHistory]);
 
+  const heroPct = Math.round(useCountUp(stats.utilizationRate || 0));
+  const hasRibbon = stats.wornColors.length > 0;
+
   if (loading) {
     return (
-      <div className="st-loading">
-        <span className="st-mono">Loading analytics…</span>
+      <div className="st-root">
+        <div className="st-sk st-sk-filter" />
+        <div className="st-sk st-sk-hero" />
+        <div className="st-sk st-sk-ribbon" />
+        <div className="st-sk st-sk-tabs" />
+        <div className="st-asym">
+          <div className="st-col">
+            <div className="st-sk st-sk-card" />
+            <div className="st-sk st-sk-card" />
+          </div>
+          <div className="st-col">
+            <div className="st-sk st-sk-card sm" />
+            <div className="st-sk st-sk-card sm" />
+          </div>
+        </div>
       </div>
     );
   }
+
+  const renderHeatmap = () => (
+    <div className="st-card">
+      <div className="st-card-hd">
+        <h3>Wear frequency</h3>
+        <div className="st-grow" />
+        <span className="st-meta">Last 7 weeks</span>
+      </div>
+      <div className="st-heatmap">
+        <div />
+        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+          <div key={i} className="st-hm-label st-hm-label-center">{d}</div>
+        ))}
+        {Array.from({ length: 7 }).map((_, w) => (
+          <React.Fragment key={w}>
+            <div className="st-hm-label" />
+            {Array.from({ length: 7 }).map((_, d) => {
+              const cell = heatmapCells[w * 7 + d];
+              const lvl = cell?.level ?? 0;
+              return (
+                <div
+                  key={d}
+                  className={`st-hm-day${lvl === -1 ? ' future' : ''}`}
+                  data-level={lvl > 0 ? lvl : undefined}
+                  title={cell && lvl >= 0 ? `${cell.dateStr}: ${cell.count} outfit${cell.count !== 1 ? 's' : ''}` : ''}
+                />
+              );
+            })}
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="st-hm-legend">
+        <span className="st-mono">less</span>
+        {[0, 1, 2, 3, 4].map((l) => (
+          <span key={l} className="st-hm-swatch" data-level={l || undefined} />
+        ))}
+        <span className="st-mono">more</span>
+      </div>
+    </div>
+  );
+
+  const renderAiVsCustom = () => (
+    <div className="st-card">
+      <div className="st-card-hd">
+        <h3>AI vs. custom</h3>
+        <div className="st-grow" />
+        <span className="st-meta">{stats.outfitSourceSplit.totalSessions} sessions</span>
+      </div>
+      <div className="st-split-row">
+        <span>AI generated</span>
+        <strong>{stats.outfitSourceSplit.aiGeneratedPercentage.toFixed(0)}%</strong>
+      </div>
+      <div className="st-bar-bg"><span className="st-bar-fill" style={{ width: `${stats.outfitSourceSplit.aiGeneratedPercentage}%` }} /></div>
+      <div className="st-split-row" style={{ marginTop: 18 }}>
+        <span>Custom</span>
+        <strong>{stats.outfitSourceSplit.customPercentage.toFixed(0)}%</strong>
+      </div>
+      <div className="st-bar-bg"><span className="st-bar-fill st-bar-alt" style={{ width: `${stats.outfitSourceSplit.customPercentage}%` }} /></div>
+    </div>
+  );
+
+  const renderStreak = () => (
+    <div className="st-card">
+      <div className="st-card-hd"><h3>Streak</h3></div>
+      <div className="st-info-list">
+        <div className="st-info-row"><span>Current streak</span><span className="st-info-val">{stats.streak.currentStreakDays} days</span></div>
+        <div className="st-info-row"><span>Longest streak</span><span className="st-info-val">{stats.streak.longestStreakDays} days</span></div>
+        <div className="st-info-row"><span>Latest wear</span><span className="st-info-val">{formatDate(stats.streak.latestWearDateUtc) || 'n/a'}</span></div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="st-root">
 
       {/* Filter bar */}
       <div className="st-filter">
-        <div className="st-filter-top">
+        <div className="st-filter-left">
           <span className="st-mono">analytics window</span>
           {refreshing && <span className="st-updating">updating…</span>}
         </div>
@@ -179,36 +307,46 @@ const StatsSection = ({ userId }) => {
         {rangeError && <div className="st-error">{rangeError}</div>}
       </div>
 
-      {/* KPI row */}
-      <div className="st-kpi-row">
-        <div className="st-kpi">
-          <span className="st-mono">wear sessions</span>
-          <span className="st-kpi-n">{stats.totalWearSessions}</span>
-          <span className="st-kpi-sub">{stats.window.label || 'all time'}</span>
-        </div>
-        <div className="st-kpi">
-          <span className="st-mono">active days</span>
-          <span className="st-kpi-n">{stats.activeDays}</span>
-          <span className="st-kpi-sub">days with outfits</span>
-        </div>
-        <div className="st-kpi">
-          <span className="st-mono">closet usage</span>
-          <span className="st-kpi-n">{stats.utilizationRate.toFixed(0)}<span className="st-kpi-unit">%</span></span>
-          <span className="st-kpi-sub">{stats.totalDistinctWornItems} items worn</span>
-        </div>
-        <div className="st-kpi">
-          <span className="st-mono">current streak</span>
-          <span className="st-kpi-n">{stats.streak.currentStreakDays}</span>
-          <span className="st-kpi-sub">days in a row</span>
-        </div>
-        {topStyle && (
-          <div className="st-kpi">
-            <span className="st-mono">top style</span>
-            <span className="st-kpi-n st-kpi-word">{topStyle.label}</span>
-            <span className="st-kpi-sub">{topStyle.percentage.toFixed(0)}% of looks</span>
+      {/* Hero band */}
+      <div className={`st-hero${hasRibbon ? ' has-ribbon' : ''}`}>
+        <div className="st-hero-lead">
+          <div className="st-hero-eyebrow">closet in motion · {stats.window.label || 'all time'}</div>
+          <div className="st-hero-num">{heroPct}<small>%</small></div>
+          <div className="st-hero-sub">
+            {stats.totalDistinctWornItems} {stats.totalDistinctWornItems === 1 ? 'piece' : 'pieces'} worn across {stats.activeDays} active {stats.activeDays === 1 ? 'day' : 'days'}.
           </div>
-        )}
+        </div>
+        <div className="st-hero-kpis">
+          <div className="st-hk"><span className="st-mono">sessions</span><span className="st-hk-n">{stats.totalWearSessions}</span></div>
+          <div className="st-hk"><span className="st-mono">active days</span><span className="st-hk-n">{stats.activeDays}</span></div>
+          <div className="st-hk"><span className="st-mono">streak</span><span className="st-hk-n">{stats.streak.currentStreakDays}</span></div>
+          {topStyle && <div className="st-hk"><span className="st-mono">top style</span><span className="st-hk-n word">{topStyle.label}</span></div>}
+        </div>
       </div>
+
+      {/* Signature color ribbon */}
+      {hasRibbon && (
+        <div className="st-ribbon">
+          <div className="st-ribbon-bar">
+            {stats.wornColors.map((c) => {
+              const hex = getCssColor(c.color);
+              return (
+                <span
+                  key={c.color}
+                  style={{ background: hex, flexGrow: c.pct, color: textOnColor(hex) }}
+                  title={`${c.color} · ${c.pct.toFixed(0)}%`}
+                >
+                  {c.pct >= 8 && <span className="st-ribbon-lab">{c.color}<br />{c.pct.toFixed(0)}%</span>}
+                </span>
+              );
+            })}
+          </div>
+          <div className="st-ribbon-foot">
+            <span className="st-mono">color palette · by wear frequency</span>
+            <span className="st-mono">{stats.wornColors.length} colors worn</span>
+          </div>
+        </div>
+      )}
 
       {/* Tab navigation */}
       <div className="st-tabs-seg">
@@ -217,139 +355,66 @@ const StatsSection = ({ userId }) => {
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="st-tab-body">
+      {/* Tab content (keyed so it re-animates on switch) */}
+      <div className="st-tab-body" key={activeTab}>
 
         {/* ── OVERVIEW ── */}
         {activeTab === 'overview' && (
           <div className="st-stack">
-            <div className="st-2col">
+            <div className="st-asym">
+              <div className="st-col">
+                {renderHeatmap()}
 
-              {/* Heatmap */}
-              <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>Wear frequency</h3>
-                  <div className="st-grow" />
-                  <span className="st-meta">Last 7 weeks</span>
-                </div>
-                <div className="st-heatmap">
-                  <div />
-                  {['M','T','W','T','F','S','S'].map((d, i) => (
-                    <div key={i} className="st-hm-label st-hm-label-center">{d}</div>
-                  ))}
-                  {Array.from({ length: 7 }).map((_, w) => (
-                    <React.Fragment key={w}>
-                      <div className="st-hm-label" />
-                      {Array.from({ length: 7 }).map((_, d) => {
-                        const cell = heatmapCells[w * 7 + d];
-                        const lvl = cell?.level ?? 0;
-                        return (
-                          <div
-                            key={d}
-                            className={`st-hm-day${lvl === -1 ? ' future' : ''}`}
-                            data-level={lvl > 0 ? lvl : undefined}
-                            title={cell && lvl >= 0 ? `${cell.dateStr}: ${cell.count} outfit${cell.count !== 1 ? 's' : ''}` : ''}
-                          />
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
-                </div>
-                <div className="st-hm-legend">
-                  <span className="st-mono">less</span>
-                  {[0, 1, 2, 3, 4].map((l) => (
-                    <span key={l} className="st-hm-swatch" data-level={l || undefined} />
-                  ))}
-                  <span className="st-mono">more</span>
+                {/* Category utilization */}
+                <div className="st-card">
+                  <div className="st-card-hd">
+                    <h3>Category utilization</h3>
+                    <div className="st-grow" />
+                    <span className="st-meta">{stats.categoryUtilization.length} categories</span>
+                  </div>
+                  {stats.categoryUtilization.length === 0
+                    ? <p className="st-empty">No category data in selected range.</p>
+                    : (
+                      <div className="st-bar-list">
+                        {stats.categoryUtilization.map((item) => (
+                          <div key={item.category}>
+                            <div className="st-bar-row">
+                              <span className="st-bar-nm">{item.category}</span>
+                              <div className="st-bar-bg"><span className="st-bar-fill" style={{ width: `${item.utilizationRate}%` }} /></div>
+                              <span className="st-bar-v">{item.utilizationRate.toFixed(0)}%</span>
+                            </div>
+                            <div className="st-bar-sub">{item.wornItems}/{item.totalItems} worn · {item.wearCount} wears</div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
                 </div>
               </div>
 
-              {/* AI vs Custom + Streak */}
-              <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>AI vs. custom</h3>
-                  <div className="st-grow" />
-                  <span className="st-meta">{stats.outfitSourceSplit.totalSessions} sessions</span>
-                </div>
-                <div className="st-split-row">
-                  <span>AI generated</span>
-                  <strong>{stats.outfitSourceSplit.aiGeneratedPercentage.toFixed(0)}%</strong>
-                </div>
-                <div className="st-bar-bg"><span className="st-bar-fill" style={{ width: `${stats.outfitSourceSplit.aiGeneratedPercentage}%` }} /></div>
-                <div className="st-split-row" style={{ marginTop: 20 }}>
-                  <span>Custom</span>
-                  <strong>{stats.outfitSourceSplit.customPercentage.toFixed(0)}%</strong>
-                </div>
-                <div className="st-bar-bg"><span className="st-bar-fill st-bar-alt" style={{ width: `${stats.outfitSourceSplit.customPercentage}%` }} /></div>
-
-                <div className="st-divider" />
-                <div className="st-card-hd" style={{ marginBottom: 0 }}>
-                  <h3>Streak</h3>
-                </div>
-                <div className="st-info-list">
-                  <div className="st-info-row">
-                    <span>Current streak</span>
-                    <span className="st-info-val">{stats.streak.currentStreakDays} days</span>
-                  </div>
-                  <div className="st-info-row">
-                    <span>Longest streak</span>
-                    <span className="st-info-val">{stats.streak.longestStreakDays} days</span>
-                  </div>
-                  <div className="st-info-row">
-                    <span>Latest wear</span>
-                    <span className="st-info-val">{formatDate(stats.streak.latestWearDateUtc) || 'n/a'}</span>
-                  </div>
-                </div>
+              <div className="st-col">
+                {renderAiVsCustom()}
+                {renderStreak()}
               </div>
             </div>
 
-            <div className="st-2col">
-              {/* Category utilization */}
-              <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>Category utilization</h3>
-                  <div className="st-grow" />
-                  <span className="st-meta">{stats.categoryUtilization.length} categories</span>
-                </div>
-                {stats.categoryUtilization.length === 0
-                  ? <p className="st-empty">No category data in selected range.</p>
-                  : (
-                    <div className="st-bar-list">
-                      {stats.categoryUtilization.map((item) => (
-                        <div key={item.category}>
-                          <div className="st-bar-row">
-                            <span className="st-bar-nm">{item.category}</span>
-                            <div className="st-bar-bg"><span className="st-bar-fill" style={{ width: `${item.utilizationRate}%` }} /></div>
-                            <span className="st-bar-v">{item.utilizationRate.toFixed(0)}%</span>
-                          </div>
-                          <div className="st-bar-sub">{item.wornItems}/{item.totalItems} worn · {item.wearCount} wears</div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }
-              </div>
-
-              {/* Seasonal split */}
-              <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>Seasonal split</h3>
-                </div>
-                {stats.seasonalDist.length === 0
-                  ? <p className="st-empty">No seasonal data in selected range.</p>
-                  : (
-                    <div className="st-season-grid">
-                      {stats.seasonalDist.map((s) => (
-                        <div key={s.season} className="st-season-cell">
-                          <span className="st-season-name">{s.season}</span>
-                          <span className="st-season-n">{s.total}</span>
-                          <span className="st-mono">{s.unique} pieces</span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }
-              </div>
+            {/* Seasonal split (full width) */}
+            <div className="st-card">
+              <div className="st-card-hd"><h3>Seasonal split</h3></div>
+              {stats.seasonalDist.length === 0
+                ? <p className="st-empty">No seasonal data in selected range.</p>
+                : (
+                  <div className="st-season-grid">
+                    {stats.seasonalDist.map((s) => (
+                      <div key={s.season} className="st-season-cell">
+                        <span className="st-season-name">{s.season}</span>
+                        <span className="st-season-n">{s.total}</span>
+                        <span className="st-mono">{s.unique} pieces</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
             </div>
           </div>
         )}
@@ -416,46 +481,10 @@ const StatsSection = ({ userId }) => {
         {/* ── STYLE ── */}
         {activeTab === 'style' && (
           <div className="st-stack">
-            {/* Color palette */}
-            <div className="st-card">
-              <div className="st-card-hd">
-                <h3>Color palette</h3>
-                <div className="st-grow" />
-                <span className="st-meta">By wear frequency</span>
-              </div>
-              {stats.wornColors.length === 0
-                ? <p className="st-empty">No color data for this range.</p>
-                : (
-                  <>
-                    <div className="st-palette-bar">
-                      {stats.wornColors.map((c) => (
-                        <span
-                          key={c.color}
-                          style={{ background: getCssColor(c.color), flex: c.pct }}
-                          title={`${c.color} · ${c.pct.toFixed(0)}%`}
-                        />
-                      ))}
-                    </div>
-                    <div className="st-palette-legend">
-                      {stats.wornColors.map((c) => (
-                        <div key={c.color} className="st-palette-item">
-                          <span className="st-palette-sw" style={{ background: getCssColor(c.color) }} />
-                          <span className="st-mono">{c.color.toUpperCase()} · {c.pct.toFixed(0)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                    {stats.colorInsight && <p className="st-insight">{stats.colorInsight}</p>}
-                  </>
-                )
-              }
-            </div>
-
             <div className="st-2col">
               {/* Style persona */}
               <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>Style persona</h3>
-                </div>
+                <div className="st-card-hd"><h3>Style persona</h3></div>
                 {Object.keys(stats.styleDist).length === 0
                   ? <p className="st-empty">No style data in selected range.</p>
                   : (
@@ -474,9 +503,7 @@ const StatsSection = ({ userId }) => {
 
               {/* Weekly vibes */}
               <div className="st-card">
-                <div className="st-card-hd">
-                  <h3>Weekly vibes</h3>
-                </div>
+                <div className="st-card-hd"><h3>Weekly vibes</h3></div>
                 {Object.keys(stats.styleByDay).length === 0
                   ? <p className="st-empty">No weekly style pattern available.</p>
                   : (
@@ -492,6 +519,13 @@ const StatsSection = ({ userId }) => {
                 }
               </div>
             </div>
+
+            {stats.colorInsight && (
+              <div className="st-card">
+                <div className="st-card-hd"><h3>Color story</h3></div>
+                <p className="st-insight">{stats.colorInsight}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -598,7 +632,7 @@ const StatsSection = ({ userId }) => {
 
         {/* ── DIVERSITY ── */}
         {activeTab === 'diversity' && (
-          <div className="st-diversity-card">
+          <div className="st-card st-div-grid">
             <div className="st-circ-wrap">
               <svg viewBox="0 0 36 36" className="st-circ">
                 <path className="st-circ-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
@@ -606,11 +640,14 @@ const StatsSection = ({ userId }) => {
                 <text x="18" y="20.35" className="st-circ-pct">{stats.utilizationRate.toFixed(0)}%</text>
               </svg>
             </div>
-            <h2 className="st-div-title">Closet utilization</h2>
-            <p className="st-div-insight">{stats.diversityInsight || 'Rotate more wardrobe pieces to boost diversity.'}</p>
-            <div className="st-div-meta">
-              <span>{stats.totalDistinctWornItems} distinct worn items</span>
-              <span>{stats.totalWearEvents} wear events</span>
+            <div className="st-div-body">
+              <span className="st-mono">closet utilization</span>
+              <h2 className="st-div-title">{stats.utilizationRate.toFixed(0)}% of your closet is in rotation</h2>
+              <p className="st-div-insight">{stats.diversityInsight || 'Rotate more wardrobe pieces to boost diversity.'}</p>
+              <div className="st-div-meta">
+                <span>{stats.totalDistinctWornItems} distinct worn items</span>
+                <span>{stats.totalWearEvents} wear events</span>
+              </div>
             </div>
           </div>
         )}

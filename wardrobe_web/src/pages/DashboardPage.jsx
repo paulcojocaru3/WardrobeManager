@@ -21,7 +21,7 @@ import StatsSection from '../components/StatsSection';
 import SettingsSection from '../components/SettingsSection';
 import WeatherAlertNotice from '../components/WeatherAlertNotice';
 import { authApi, clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
-import { COLORS, CLOTHING_TYPES, GENDERS, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
+import { COLORS, CLOTHING_TYPES, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
 import { getErrorMessage } from '../utils/errors';
 import { toCsv, toTypeIndex } from '../utils/wardrobeTransforms';
 import { useTheme } from '../contexts/ThemeContext';
@@ -204,6 +204,7 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [editItemMode, setEditItemMode] = useState(false);
   const [editItemData, setEditItemData] = useState(null);
+  const [subtypeOptions, setSubtypeOptions] = useState({});
   
   const [uploadModal, setUploadModal] = useState(false);
   const [uploadData, setUploadData] = useState([]);
@@ -335,6 +336,23 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
     });
   }, [plannerEvents, eventForecasts, weatherInfo, genericForecast]);
 
+  // Nearest current/upcoming planner event — drives the "Next up" dashboard module.
+  const nextUpEvent = useMemo(() => {
+    const today = toDayStart(new Date());
+    const upcoming = plannerEvents
+      .filter((e) => toDayEnd(e.endDate) >= today)
+      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+    const event = upcoming[0];
+    if (!event) return null;
+
+    const start = toDayStart(event.startDate);
+    const daysUntil = Math.max(0, Math.round((start.getTime() - today.getTime()) / DAY_IN_MS));
+    const totalDays = getEventDays(event).length;
+    const planned = (event.itineraries || []).filter((i) => i.outfitId || i.outfit).length;
+    const forecast = (eventForecasts[event.id] || [])[0] || null;
+    return { event, daysUntil, totalDays, planned, needsPlan: planned < totalDays, forecast };
+  }, [plannerEvents, eventForecasts, getEventDays]);
+
 
 
   const [editItineraryModal, setEditItineraryModal] = useState(false);
@@ -359,6 +377,9 @@ const [editItineraryData, setEditItineraryData] = useState({
   const [aiModal, setAiModal] = useState(false);
   const [aiData, setAiData] = useState(null);
   const [aiIntent, setAiIntent] = useState(null);
+  // Prompt + already-shown seed ids, so "Generate another" can exclude past tops and pick a new one.
+  const [aiPromptText, setAiPromptText] = useState('');
+  const [aiExcludedSeedIds, setAiExcludedSeedIds] = useState([]);
   
   // Custom Outfit State
   const [customOutfitModal, setCustomOutfitModal] = useState(false);
@@ -443,13 +464,53 @@ const [editItineraryData, setEditItineraryData] = useState({
     [userDisplayName]
   );
 
+  // Time-of-day greeting + long date for the editorial hero eyebrow.
+  const greetingLine = (() => {
+    const now = new Date();
+    const hour = now.getHours();
+    const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const date = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    return `${date} · ${part}`;
+  })();
+  const firstName = userDisplayName.split(/\s+/)[0];
+
   const handleSaveProfile = async (payload) => {
     const res = await authApi.updateUser(userId, payload);
     onUserUpdate(res.data);
   };
 
+  // Low-sensitivity preferences (favorite colors, city, theme) — no password needed.
+  const handleSavePreferences = useCallback(async (payload) => {
+    const res = await authApi.updatePreferences(userId, payload);
+    onUserUpdate(res.data);
+    return res.data;
+  }, [userId, onUserUpdate]);
+
+  const handleDeleteAccount = async () => {
+    await authApi.deleteUser(userId);
+    onLogout();
+  };
+
+  // Toggle theme locally and persist the choice to the account.
+  const handleToggleTheme = useCallback(() => {
+    const next = isDarkMode ? 'light' : 'dark';
+    toggleTheme();
+    authApi.updatePreferences(userId, { themePreference: next })
+      .then((res) => onUserUpdate(res.data))
+      .catch(() => { /* local toggle still applies */ });
+  }, [isDarkMode, toggleTheme, userId, onUserUpdate]);
+
+  // Apply the account's saved theme once on mount (account wins over local cache).
+  const themeAppliedRef = useRef(false);
+  useEffect(() => {
+    if (themeAppliedRef.current) return;
+    themeAppliedRef.current = true;
+    const pref = user?.themePreference || user?.ThemePreference;
+    if (pref === 'dark' && !isDarkMode) toggleTheme();
+    if (pref === 'light' && isDarkMode) toggleTheme();
+  }, [user, isDarkMode, toggleTheme]);
+
   const aiOutfitCount = useMemo(() => outfits.filter((outfit) => outfit.isAiGenerated).length, [outfits]);
-  const customOutfitCount = useMemo(() => Math.max(outfits.length - aiOutfitCount, 0), [outfits.length, aiOutfitCount]);
   const detectedConcepts = useMemo(() => {
     if (!generatePrompt.trim()) return [];
     const lower = generatePrompt.toLowerCase();
@@ -472,19 +533,6 @@ const [editItineraryData, setEditItineraryData] = useState({
     return found;
   }, [generatePrompt]);
 
-  const weatherSummary = useMemo(
-    () => (weatherInfo ? `${Math.round(weatherInfo.temperature)}°C • ${weatherInfo.condition}` : 'updating...'),
-    [weatherInfo]
-  );
-  const trackedStyles = useMemo(
-    () => new Set(
-      clothes.flatMap((item) => (item.usage || '')
-        .split(',')
-        .map((entry) => entry.trim().toLowerCase())
-        .filter(Boolean))
-    ).size,
-    [clothes]
-  );
 
   const wardrobeTags = useMemo(() => {
     const tagSet = new Set();
@@ -526,6 +574,14 @@ const [editItineraryData, setEditItineraryData] = useState({
 
   useEffect(() => {
     const detectLocation = async () => {
+      // Account preference wins, then the local cache, then geo-detection.
+      const accountCity = user?.preferredCity || user?.PreferredCity;
+      if (accountCity) {
+        setCity(accountCity);
+        localStorage.setItem('userCity', accountCity);
+        return;
+      }
+
       const savedCity = localStorage.getItem('userCity');
       if (savedCity) {
         setCity(savedCity);
@@ -555,12 +611,18 @@ const [editItineraryData, setEditItineraryData] = useState({
       }
     };
     detectLocation();
+    // Runs once on mount; account city is read from the user captured at login.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCityChange = useCallback((newCity) => {
     setCity(newCity);
     localStorage.setItem('userCity', newCity);
-  }, []);
+    // Sync to the account so it follows the user across devices (best-effort).
+    authApi.updatePreferences(userId, { preferredCity: newCity })
+      .then((res) => onUserUpdate(res.data))
+      .catch(() => { /* keep local change even if sync fails */ });
+  }, [userId, onUserUpdate]);
 
   const fetchWeather = useCallback(async () => {
     if (city === 'Detecting...') return;
@@ -661,6 +723,16 @@ const [editItineraryData, setEditItineraryData] = useState({
     }
   }, [userId]);
 
+  // Sub-type vocabulary (grouped by type) for the edit dropdown — static metadata, fetched once.
+  const fetchSubtypes = useCallback(async () => {
+    try {
+      const res = await clothingApi.getSubtypes();
+      setSubtypeOptions(res.data || {});
+    } catch (e) {
+      console.error('Subtypes error:', e);
+    }
+  }, []);
+
   const refresh = useCallback(() => {
     if (!userId) return;
 
@@ -670,7 +742,8 @@ const [editItineraryData, setEditItineraryData] = useState({
     fetchArchivedPlannerEvents();
     fetchWeather();
     fetchUsageRate();
-  }, [fetchClothes, fetchOutfits, fetchPlannerEvents, fetchArchivedPlannerEvents, fetchWeather, fetchUsageRate, userId]);
+    fetchSubtypes();
+  }, [fetchClothes, fetchOutfits, fetchPlannerEvents, fetchArchivedPlannerEvents, fetchWeather, fetchUsageRate, fetchSubtypes, userId]);
 
   useEffect(() => {
     refresh();
@@ -725,6 +798,8 @@ return () => clearTimeout(timeoutId);
     const promptText = [selectedOccasion, generatePrompt.trim()].filter(Boolean).join('. ');
     if (!item && promptText) {
       setLoading(true);
+      setAiPromptText(promptText);
+      setAiExcludedSeedIds([]);
       try {
         const { data } = await outfitsApi.generateFromPrompt({
           userId,
@@ -772,11 +847,35 @@ return () => clearTimeout(timeoutId);
       });
       setAiData(data);
       setAiIntent(null);
+      setAiPromptText(''); // not a prompt flow -> no "Generate another"
       setAiModal(true);
     } catch (err) {
       handleApiAlert(err, 'Generation failed');
     }
     finally { setLoading(false); setSelectedItem(null); }
+  };
+
+  // Re-run the same prompt, excluding the seeds already shown, to surface a different top/outfit.
+  const onRegenerateAi = async () => {
+    if (!aiPromptText) return;
+    const currentSeedId = aiData?.selectedItems?.[0]?.id;
+    const excluded = currentSeedId ? [...aiExcludedSeedIds, currentSeedId] : aiExcludedSeedIds;
+    setLoading(true);
+    try {
+      const { data } = await outfitsApi.generateFromPrompt({
+        userId,
+        prompt: aiPromptText,
+        threshold: 0.5,
+        excludedSeedItemIds: excluded,
+      });
+      setAiData(data.outfit);
+      setAiIntent(data.intent);
+      setAiExcludedSeedIds(excluded);
+    } catch (err) {
+      handleApiAlert(err, 'Generation failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFileChange = (e) => {
@@ -820,6 +919,7 @@ return () => clearTimeout(timeoutId);
 
         setValidationData({
           ...firstItem,
+          color: firstItem.color ? [firstItem.color] : [],
           season: firstItem.season ? [firstItem.season] : [],
           usage: firstItem.usage ? [firstItem.usage] : []
         });
@@ -836,7 +936,7 @@ return () => clearTimeout(timeoutId);
 
   const onConfirmStep = () => {
     setValidationSearchTerm('');
-    if (currentStep < 4) {
+    if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
     } else {
       onSaveValidatedItem();
@@ -851,7 +951,8 @@ return () => clearTimeout(timeoutId);
         userId,
         name: validationData.name,
         type: payloadType,
-        color: validationData.color,
+        subType: validationData.subType,
+        color: toCsv(validationData.color),
         gender: validationData.gender,
         season: toCsv(validationData.season),
         usage: toCsv(validationData.usage),
@@ -872,6 +973,7 @@ return () => clearTimeout(timeoutId);
         const nextItem = newQueue[0];
         setValidationData({
           ...nextItem,
+          color: nextItem.color ? [nextItem.color] : [],
           season: nextItem.season ? [nextItem.season] : [],
           usage: nextItem.usage ? [nextItem.usage] : []
         });
@@ -898,8 +1000,7 @@ return () => clearTimeout(timeoutId);
 
     const steps = [
       { label: 'TYPE', value: validationData.type, options: CLOTHING_TYPES, field: 'type', isEnum: true, original: originalPredictions.type },
-      { label: 'COLOR', value: validationData.color, options: COLORS, field: 'color', isSearchable: true, original: originalPredictions.color },
-      { label: 'GENDER', value: validationData.gender, options: GENDERS, field: 'gender', original: originalPredictions.gender },
+      { label: 'COLOR', value: validationData.color, options: COLORS, field: 'color', isMulti: true, isSearchable: true, original: originalPredictions.color },
       { label: 'SEASON', value: validationData.season, options: SEASONS, field: 'season', isMulti: true, original: originalPredictions.season },
       { label: 'USAGE', value: validationData.usage, options: USAGES, field: 'usage', isMulti: true, original: originalPredictions.usage }
     ];
@@ -939,7 +1040,7 @@ return () => clearTimeout(timeoutId);
 
         <div style={{ marginBottom: '30px', textAlign: 'left' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <span className="robotic-text" style={{ fontSize: '0.6rem', color: 'var(--fg-faint)' }}>STEP {currentStep + 1} OF 5: VERIFY {step.label}</span>
+            <span className="robotic-text" style={{ fontSize: '0.6rem', color: 'var(--fg-faint)' }}>STEP {currentStep + 1} OF {steps.length}: VERIFY {step.label}</span>
           </div>
           
           {step.isSearchable && (
@@ -956,7 +1057,17 @@ return () => clearTimeout(timeoutId);
                 <button key={opt} onClick={() => {
                   if (step.isMulti) {
                     const currentArray = validationData[step.field];
-                    setValidationData({ ...validationData, [step.field]: currentArray.includes(opt) ? currentArray.filter(i => i !== opt) : [...currentArray, opt] });
+                    let next;
+                    if (step.field === 'season' && opt === 'All Seasons') {
+                      next = currentArray.includes(opt) ? [] : ['All Seasons']; // exclusive
+                    } else if (step.field === 'season') {
+                      next = currentArray.includes(opt)
+                        ? currentArray.filter(i => i !== opt)
+                        : [...currentArray.filter(i => i !== 'All Seasons'), opt];
+                    } else {
+                      next = currentArray.includes(opt) ? currentArray.filter(i => i !== opt) : [...currentArray, opt];
+                    }
+                    setValidationData({ ...validationData, [step.field]: next });
                   } else {
                     setValidationData({ ...validationData, [step.field]: step.isEnum ? CLOTHING_TYPES.indexOf(opt) : opt });
                     if (step.isSearchable) setValidationSearchTerm('');
@@ -972,7 +1083,7 @@ return () => clearTimeout(timeoutId);
 
         <div className="modal-actions" style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
           {currentStep > 0 && <button className="close-link" onClick={() => { setValidationSearchTerm(''); setCurrentStep(currentStep - 1); }} style={{ flex: 1, padding: '12px' }}>BACK</button>}
-          <button className="gen-btn" onClick={onConfirmStep} disabled={loading} style={{ flex: 2, padding: '12px' }}>{loading ? 'SAVING...' : (currentStep === 4 ? "COMPLETE & SAVE" : "CONTINUE")}</button>
+          <button className="gen-btn" onClick={onConfirmStep} disabled={loading} style={{ flex: 2, padding: '12px' }}>{loading ? 'SAVING...' : (currentStep === steps.length - 1 ? "COMPLETE & SAVE" : "CONTINUE")}</button>
         </div>
       </div>
     );
@@ -983,6 +1094,7 @@ return () => clearTimeout(timeoutId);
     try {
       const itemIds = aiData.selectedItems.map(i => i.id);
       await outfitsApi.create({ userId, name: aiData.name, itemIds, isAiGenerated: true });
+      recordAiFeedback();
       setAiModal(false);
       setView('outfits');
       fetchOutfits();
@@ -990,6 +1102,18 @@ return () => clearTimeout(timeoutId);
       handleApiAlert(err, 'Save failed');
     }
     finally { setLoading(false); }
+  };
+
+  // Chosen items = accepted; the shown-but-not-chosen alternatives = rejected (training labels).
+  const recordAiFeedback = () => {
+    if (!aiData?.generationId) return;
+    const acceptedIds = new Set(aiData.selectedItems.map(i => i.id));
+    const items = [];
+    acceptedIds.forEach(id => items.push({ clothingItemId: id, action: 'Accepted' }));
+    (aiData.recommendationsPerType || [])
+      .flatMap(r => r.topCandidates || [])
+      .forEach(c => { if (!acceptedIds.has(c.id)) items.push({ clothingItemId: c.id, action: 'Rejected' }); });
+    if (items.length > 0) outfitsApi.recordFeedback(aiData.generationId, items).catch(() => {});
   };
 
   const onEditSave = async () => {
@@ -1010,6 +1134,7 @@ return () => clearTimeout(timeoutId);
       await clothingApi.update(editItemData.id, {
         ...editItemData,
         type: toTypeIndex(editItemData.type),
+        color: toCsv(editItemData.color),
         season: toCsv(editItemData.season),
         usage: toCsv(editItemData.usage),
         userId
@@ -1572,8 +1697,7 @@ const onUpdateItinerary = async () => {
         <div className="sw-brand">
           <div className="mark">W</div>
           <div>
-            <div className="name">SmartWardrobe</div>
-            <div className="sub">Closet · AI · Calendar</div>
+            <div className="name">WardrobeManager</div>
           </div>
         </div>
 
@@ -1627,7 +1751,7 @@ const onUpdateItinerary = async () => {
         <div className="sw-top">
           <div className="sw-mobile-brand">
             <div className="mark">W</div>
-            SmartWardrobe
+            WardrobeManager
           </div>
           <div className="ttl">
             {view === 'generate' ? 'Generate' : view === 'wardrobe' ? 'Wardrobe' : view === 'outfits' ? 'Outfits' : view === 'planner' ? 'Planner' : view === 'settings' ? 'Settings' : 'Stats'}
@@ -1642,7 +1766,7 @@ const onUpdateItinerary = async () => {
 
         <div className="sw-content">
           {view === 'generate' ? (
-            <div className="sw-stack">
+            <div className="sw-ed-page">
               {weatherAlert && (
                 <WeatherAlertNotice
                   alert={weatherAlert}
@@ -1668,126 +1792,114 @@ const onUpdateItinerary = async () => {
                 />
               )}
 
-              <div className="sw-gen-hero">
-                <div className="copy">
-                  <div className="sw-label-mono" style={{ marginBottom: 14 }}>· AI STYLIST</div>
-                  <h1>What should you<br /><em>wear today?</em></h1>
-                  <p>Describe the day, occasion, or mood. SmartWardrobe pairs items from your closet using fit, colour, weather and your calendar.</p>
-                  <div className="stat-row">
-                    <div className="stat"><div className="n">{clothes.length}</div><div className="l">Items</div></div>
-                    <div className="stat"><div className="n">{outfits.length}</div><div className="l">Saved looks</div></div>
-                    <div className="stat"><div className="n">{todaysEventSummary.totalEvents}</div><div className="l">Today&apos;s events</div></div>
-                  </div>
-                </div>
-                <div className="sw-weather-card">
-                  <button className="wc-city" onClick={() => { setSearchTerm(''); setCityModal(true); }}>{city}</button>
-                  <div className="wc-temp">{weatherInfo ? `${Math.round(weatherInfo.temperature)}` : '--'}<sup>°</sup></div>
-                  <div className="wc-cond">{weatherInfo?.condition || 'updating...'}</div>
-                  <div className="wc-meta">season: {weatherInfo?.seasonSuggestion || 'n/a'}</div>
-                  <div className="hero-readiness-block" style={{ marginTop: 'auto' }}>
-                    <span>today readiness</span>
-                    <strong>{todaysReadinessPercent}%</strong>
-                    <div className="hero-progress-track">
-                      <div className="hero-progress-fill" style={{ width: `${todaysReadinessPercent}%` }} />
-                    </div>
-                  </div>
+              <div className="sw-ed-eyebrow">{greetingLine}</div>
+              <div className="sw-ed-top">
+                <h1 className="sw-ed-hero">What are we wearing <em>today</em>, {firstName}?</h1>
+                <div className="sw-ed-weather">
+                  <button className="t" onClick={() => { setSearchTerm(''); setCityModal(true); }}>
+                    {weatherInfo ? `${Math.round(weatherInfo.temperature)}°` : '--°'}
+                  </button>
+                  <div className="c">{weatherInfo?.condition || 'updating…'}</div>
+                  <button className="loc" onClick={() => { setSearchTerm(''); setCityModal(true); }}>{city}</button>
                 </div>
               </div>
 
-              <div className="sw-prompt">
-                <div className="sw-occasions">
-                  <span className="sw-occasions-lbl">What&apos;s the occasion?</span>
-                  <div className="sw-ptag-chips">
-                    {OCCASION_CHIPS.map(o => (
-                      <button
-                        key={o.kw}
-                        className={`sw-pill${selectedOccasion === o.kw ? ' is-active' : ''}`}
-                        onClick={() => setSelectedOccasion(prev => (prev === o.kw ? null : o.kw))}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="sw-ed-prompt">
                 <textarea
-                  placeholder="Optional details — a specific item, colors, the city… e.g. with my white shirt, no red, in Cluj"
+                  placeholder="Describe the outfit you need — e.g. smart casual for a dinner, nothing black, in Cluj"
                   value={generatePrompt}
                   onChange={e => setGeneratePrompt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); } }}
                 />
                 {detectedConcepts.length > 0 && (
-                  <div className="sw-detected">
-                    <span className="sw-detected-lbl">recognized</span>
+                  <div className="sw-ed-detected">
+                    <span className="lbl">recognized</span>
                     {detectedConcepts.map((c, i) => (
                       <span key={i} className={`sw-detected-badge sw-detected-badge--${c.category}`}>{c.text}</span>
                     ))}
                   </div>
                 )}
-                <div className="sw-prompt-foot">
-                  <span className="sw-label-mono">click generate or press ⌘↵</span>
-                  <div style={{ flex: 1 }} />
-                  <button className="sw-btn ghost" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>Surprise me</button>
-                  <button className="sw-btn accent" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>
-                    {IC.sparkles}<span>{loading ? 'Generating…' : 'Generate outfits'}</span>
-                  </button>
+                <div className="sw-ed-chips">
+                  {OCCASION_CHIPS.map(o => (
+                    <button
+                      key={o.kw}
+                      className={`sw-ed-chip${selectedOccasion === o.kw ? ' on' : ''}`}
+                      onClick={() => setSelectedOccasion(prev => (prev === o.kw ? null : o.kw))}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                  <div className="sw-ed-actions">
+                    <button className="sw-ed-ghost" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>Surprise me</button>
+                    <button className="sw-ed-go" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>{loading ? 'Generating…' : 'Generate →'}</button>
+                  </div>
                 </div>
               </div>
 
-              <div className="sw-week-section">
-                <div className="sw-section-h">
-                  <h2>Upcoming 7 days</h2>
-                  <span className="meta">tap any day to jump into planner</span>
-                  <div className="grow" />
-                  <button className="sw-btn ghost" onClick={openPlannerForToday}>Open planner</button>
+              {nextUpEvent && (
+                <div className="sw-ed-nextup">
+                  <div className="body">
+                    <div className="when">
+                      <span className="lbl">Next up</span>
+                      {' · '}
+                      {nextUpEvent.daysUntil === 0 ? 'Today' : nextUpEvent.daysUntil === 1 ? 'Tomorrow' : `In ${nextUpEvent.daysUntil} days`}
+                      {' · '}
+                      {new Date(nextUpEvent.event.startDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
+                    </div>
+                    <h3>{nextUpEvent.event.name}</h3>
+                    <div className="meta">
+                      {[
+                        nextUpEvent.event.location,
+                        nextUpEvent.forecast ? `${Math.round(nextUpEvent.forecast.temperature)}° ${nextUpEvent.forecast.condition}` : null,
+                        nextUpEvent.needsPlan ? 'outfit not planned yet' : 'outfit planned',
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <button
+                    className="cta"
+                    onClick={() => { setSelectedPlannerEvent(nextUpEvent.event); setSelectedDayIndex(null); setView('planner'); }}
+                  >
+                    {nextUpEvent.needsPlan ? 'Plan the outfit →' : 'View in planner →'}
+                  </button>
                 </div>
-                <div className="week-strip-grid">
+              )}
+
+              <div className="sw-ed-sec">
+                <div className="sw-ed-sec-h">
+                  <span className="sw-ed-eyebrow" style={{ margin: 0 }}>This week</span>
+                  <div className="grow" />
+                  <button className="sw-ed-more" onClick={openPlannerForToday}>Open planner →</button>
+                </div>
+                <div className="sw-ed-week">
                   {upcomingWeekDays.map((day) => (
                     <div
                       key={day.dayKey}
-                      className={`week-day-card ${day.isToday ? 'today' : ''} ${day.status}`}
+                      className={`sw-ed-day ${day.isToday ? 'today' : ''} ${day.status}`}
                       onClick={() => setPreviewDay(day)}
                     >
-                      <div className="week-day-top">
-                        <span>{day.weekdayLabel}</span>
-                        {day.isToday && <small>today</small>}
-                      </div>
-                      <strong>{day.dayLabel}</strong>
-                      <p className="week-day-weather">
+                      {day.status !== 'free' && <span className="flag" />}
+                      <div className="wd">{day.weekdayLabel}</div>
+                      <div className="dn">{day.date.getDate()}</div>
+                      <div className="wx">
                         {day.weather?.temperature !== undefined
-                          ? `${Math.round(day.weather.temperature)}°C • ${day.weather.condition}`
-                          : 'forecast pending'}
-                      </p>
-                      <p className="week-day-event-name">
-                        {day.primaryEvent
-                          ? `${day.primaryEvent.name}${day.totalEvents > 1 ? ` +${day.totalEvents - 1}` : ''}`
-                          : 'No planned events'}
-                      </p>
-                      {day.primaryItinerary?.outfit && (
-                        <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', margin: '8px 0', justifyContent: 'center' }}>
-                          {day.primaryItinerary.outfit.items?.slice(0, 3).map(item => (
-                            <img
-                              key={item.id}
-                              src={item.processedImageUrl}
-                              alt={item.name}
-                              style={{ width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-subtle)', objectFit: 'cover', flexShrink: 0 }}
-                            />
-                          ))}
+                          ? `${Math.round(day.weather.temperature)}° ${day.weather.condition}`
+                          : '—'}
+                      </div>
+                      {day.primaryEvent ? (
+                        <div className="ev">
+                          {day.primaryEvent.name}{day.totalEvents > 1 ? ` +${day.totalEvents - 1}` : ''}
+                          <small>{day.status === 'planned' ? 'Planned' : 'Needs outfit'}</small>
                         </div>
+                      ) : (
+                        <div className="free">— free</div>
                       )}
-                      <span className="week-day-status" style={{ marginTop: 'auto' }}>
-                        {day.totalEvents === 0
-                          ? 'Free day'
-                          : day.status === 'planned'
-                            ? `Ready ${day.plannedCount}/${day.totalEvents}`
-                            : `Needs plan ${day.plannedCount}/${day.totalEvents}`}
-                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           ) : view === 'wardrobe' ? (
-            <div className="sw-stack">
+            <div className="sw-ed-page">
               <div className="sw-filter-bar">
                 <div className="sw-search">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -2234,65 +2346,20 @@ const onUpdateItinerary = async () => {
               city={city}
               onOpenCityModal={() => { setSearchTerm(''); setCityModal(true); }}
               isDarkMode={isDarkMode}
-              toggleTheme={toggleTheme}
+              toggleTheme={handleToggleTheme}
               onLogout={onLogout}
               onSaveProfile={handleSaveProfile}
+              onSavePreferences={handleSavePreferences}
+              onDeleteAccount={handleDeleteAccount}
+              favoriteColors={user?.favoriteColors || user?.FavoriteColors || []}
+              outerwearMode={user?.outerwearMode ?? user?.OuterwearMode ?? 'auto'}
+              outerwearTempThreshold={user?.outerwearTempThreshold ?? user?.OuterwearTempThreshold ?? 23}
               clothes={clothes}
               outfits={outfits}
               aiOutfitCount={aiOutfitCount}
             />
           ) : (
             <div className="stats-layout">
-              <div className="profile-stats-header">
-                <div className="profile-card">
-                  <div className="profile-main">
-                    <div className="profile-avatar-large">{userInitials}</div>
-                    <div>
-                      <h3 className="profile-name">{userDisplayName}</h3>
-                      <p className="profile-email">{userEmail}</p>
-                    </div>
-                  </div>
-
-                  <div className="profile-meta-grid">
-                    <div className="profile-meta-item">
-                      <span>city</span>
-                      <strong>{city}</strong>
-                    </div>
-                    <div className="profile-meta-item">
-                      <span>weather</span>
-                      <strong>{weatherSummary}</strong>
-                    </div>
-                    <div className="profile-meta-item">
-                      <span>member since</span>
-                      <strong>{memberSince}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="profile-kpi-grid">
-                  <div className="profile-kpi-card">
-                    <span>wardrobe items</span>
-                    <strong>{clothes.length}</strong>
-                  </div>
-                  <div className="profile-kpi-card">
-                    <span>saved outfits</span>
-                    <strong>{outfits.length}</strong>
-                  </div>
-                  <div className="profile-kpi-card">
-                    <span>ai outfits</span>
-                    <strong>{aiOutfitCount}</strong>
-                  </div>
-                  <div className="profile-kpi-card">
-                    <span>custom outfits</span>
-                    <strong>{customOutfitCount}</strong>
-                  </div>
-                  <div className="profile-kpi-card full">
-                    <span>tracked styles</span>
-                    <strong>{trackedStyles}</strong>
-                  </div>
-                </div>
-              </div>
-
               {/* Advanced Stats Section */}
               <StatsSection userId={userId} />
 
@@ -2324,9 +2391,10 @@ const onUpdateItinerary = async () => {
         selectedItem={selectedItem} 
         editItemMode={editItemMode} 
         setEditItemMode={setEditItemMode} 
-        editItemData={editItemData} 
-        setEditItemData={setEditItemData} 
-        onUpdateItem={onUpdateItem} 
+        editItemData={editItemData}
+        setEditItemData={setEditItemData}
+        subtypeOptions={subtypeOptions}
+        onUpdateItem={onUpdateItem}
         onGenerate={onGenerate} 
         loading={loading} 
       />
@@ -2344,6 +2412,7 @@ const onUpdateItinerary = async () => {
         setAiData={setAiData}
         intent={aiIntent}
         onSaveAiOutfit={onSaveAiOutfit}
+        onRegenerate={aiPromptText ? onRegenerateAi : null}
         loading={loading}
       />
 

@@ -3,7 +3,7 @@ using WardrobeManager.Application.Users.Queries;
 
 namespace WardrobeManager.Application.Users.Validators;
 
-public class LoginUserQueryValidator : AbstractValidator<LoginUserQuery>
+public sealed class LoginUserQueryValidator : AbstractValidator<LoginUserQuery>
 {
     public LoginUserQueryValidator()
     {

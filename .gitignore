@@ -1,0 +1,30 @@
+# Secrets / local env
+.env
+!.env.example
+
+# Build artifacts
+**/bin/
+**/obj/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+
+# Local logs
+api_log.txt
+
+# Database backups
+*.dump
+
+# Large ML training data (kept local, not in repo)
+ml_api/styles.csv
+
+# IDE / tooling
+.vs/
+.idea/
+*.user
+
+# Test & code-analysis output
+**/TestResults/
+.sonarqube/
+.sonar/

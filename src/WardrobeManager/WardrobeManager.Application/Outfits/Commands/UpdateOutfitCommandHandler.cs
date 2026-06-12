@@ -5,7 +5,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public class UpdateOutfitCommandHandler(
+public sealed class UpdateOutfitCommandHandler(
     IOutfitRepository outfitRepository, 
     IClothingRepository clothingRepository,
     IValidator<UpdateOutfitCommand> validator) : IRequestHandler<UpdateOutfitCommand, bool>
@@ -26,21 +26,19 @@ public class UpdateOutfitCommandHandler(
             outfit.Tags = request.Tags;
         }
 
+        var fetched = (await clothingRepository.GetByIdsAsync(request.ItemIds, ct)).ToDictionary(i => i.Id);
         var newItems = new List<ClothingItem>();
         foreach (var itemId in request.ItemIds)
         {
-            var item = await clothingRepository.GetByIdAsync(itemId, ct);
-            if (item != null)
+            if (!fetched.TryGetValue(itemId, out var item)) continue;
+            if (newItems.Any(i => i.Type == item.Type))
             {
-                if (newItems.Any(i => i.Type == item.Type))
-                {
-                    throw new InvalidOperationException($"Outfit already contains an item of type {item.Type}. Each type must be unique.");
-                }
-                newItems.Add(item);
+                throw new InvalidOperationException($"Outfit already contains an item of type {item.Type}. Each type must be unique.");
             }
+            newItems.Add(item);
         }
-        
-        outfit.Items = newItems;
+
+outfit.Items = newItems;
 
         await outfitRepository.UpdateAsync(outfit, ct);
         return true;
