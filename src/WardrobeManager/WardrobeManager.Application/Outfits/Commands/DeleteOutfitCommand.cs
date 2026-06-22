@@ -2,4 +2,4 @@ using MediatR;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
-public record DeleteOutfitCommand(Guid Id) : IRequest<bool>;
+public record DeleteOutfitCommand(Guid UserId, Guid Id) : IRequest<bool>;

@@ -1,9 +1,6 @@
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-env/
-.git/
-*.log
-.pytest_cache/
+__pycache__
+*.py[cod]
+*.h5
+eval
+.pytest_cache
+.venv

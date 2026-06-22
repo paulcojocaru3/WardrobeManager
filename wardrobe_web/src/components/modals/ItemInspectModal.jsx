@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Modal from '../Modal';
 import { CLOTHING_TYPES, SEASONS, USAGES } from '../../constants/wardrobe';
 import { colorToHex, COLOR_HEX } from '../../constants/colors';
 import { toStringArray } from '../../utils/wardrobeTransforms';
+import { clothingApi } from '../../services/wardrobeApi';
 
 const COLOR_NAMES = Object.keys(COLOR_HEX);
 
@@ -19,9 +20,28 @@ const ItemInspectModal = ({
   selectedItem, editItemMode, setEditItemMode,
   editItemData, setEditItemData,
   subtypeOptions = {},
-  onUpdateItem, onGenerate, loading
+  onUpdateItem, onGenerate, loading,
+  onSelectSimilar
 }) => {
   const [colorSearch, setColorSearch] = useState('');
+  // Results are tagged with the item they belong to, so a previous item's matches
+  // never render against a newly-opened one (and we avoid setState in the effect body).
+  const [similar, setSimilar] = useState({ forId: null, items: [] });
+
+  // Fetch visually-closest wardrobe items whenever a new item is inspected (view mode only).
+  // The strip is only rendered in view mode, so we simply skip fetching while editing.
+  const itemId = selectedItem?.id;
+  useEffect(() => {
+    if (!itemId || editItemMode) return;
+    let cancelled = false;
+    clothingApi.getSimilar(itemId, { limit: 6 })
+      .then(res => { if (!cancelled) setSimilar({ forId: itemId, items: Array.isArray(res.data) ? res.data : [] }); })
+      .catch(() => { if (!cancelled) setSimilar({ forId: itemId, items: [] }); });
+    return () => { cancelled = true; };
+  }, [itemId, editItemMode]);
+
+  const similarItems = similar.forId === itemId ? similar.items : [];
+
   if (!selectedItem) return null;
 
   const typeStr = typeof selectedItem.type === 'number'
@@ -333,6 +353,26 @@ const ItemInspectModal = ({
                   Edit
                 </button>
               </div>
+
+              {similarItems.length > 0 && (
+                <div className="iim-similar">
+                  <div className="iim-similar-head">More like this</div>
+                  <div className="iim-similar-strip">
+                    {similarItems.map(({ item, similarity }) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="iim-similar-card"
+                        onClick={() => onSelectSimilar?.(item)}
+                        title={`${item.name} · ${Math.round((similarity ?? 0) * 100)}% match`}
+                      >
+                        <img src={item.processedImageUrl} alt={item.name} />
+                        <span className="iim-similar-score">{Math.round((similarity ?? 0) * 100)}%</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

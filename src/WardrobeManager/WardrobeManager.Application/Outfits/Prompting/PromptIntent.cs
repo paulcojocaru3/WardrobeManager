@@ -14,13 +14,15 @@ public record PromptIntent
     public IReadOnlyList<string> AvoidColors { get; init; } = new List<string>();
 
     // colors bound to a specific garment (e.g. "black pants, non-black tee") — the LLM does the
-    // color->garment association; applied as a hard filter on that slot only.
     public IReadOnlyList<GarmentSpec> GarmentSpecs { get; init; } = new List<GarmentSpec>();
 
     // a specific garment to build the outfit around
     public string? AnchorDescription { get; init; }
     public IReadOnlyList<ClothingType> RequestedTypes { get; init; } = new List<ClothingType>();
     public IReadOnlyList<RequestedGarment> RequestedGarments { get; init; } = new List<RequestedGarment>();
+
+    // soft garment attributes (sleeve length, material, fit) — there is no sub-type for these in the ML
+    public IReadOnlyList<string> Attributes { get; init; } = new List<string>();
 
     public int? Formality { get; init; }
 

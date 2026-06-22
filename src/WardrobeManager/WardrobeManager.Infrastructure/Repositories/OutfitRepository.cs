@@ -14,9 +14,16 @@ public sealed class OutfitRepository(ApplicationDbContext context) : IOutfitRepo
             .FirstOrDefaultAsync(o => o.Id == id, ct);
     }
 
+    public async Task<Outfit?> GetByIdForUserAsync(Guid id, Guid userId, CancellationToken ct)
+    {
+        return await context.Outfits
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == id && o.UserId == userId, ct);
+    }
+
     public async Task<List<Outfit>> GetByUserIdAsync(Guid userId, CancellationToken ct)
     {
-        // Read-only listing — no change tracking needed.
+        // read-only listing — no change tracking needed.
         return await context.Outfits
             .AsNoTracking()
             .Include(o => o.Items)
@@ -27,7 +34,7 @@ public sealed class OutfitRepository(ApplicationDbContext context) : IOutfitRepo
 
     public async Task AddAsync(Outfit outfit, CancellationToken ct)
     {
-        // Atașăm hainele existente pentru a nu încerca să le creeze din nou
+        // atașăm hainele existente pentru a nu încerca să le creeze din nou
         var attachedItems = new List<ClothingItem>();
         foreach (var item in outfit.Items)
         {

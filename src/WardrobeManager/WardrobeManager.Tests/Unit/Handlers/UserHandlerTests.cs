@@ -1,9 +1,7 @@
-using FluentValidation;
 using NSubstitute;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Users.Commands;
 using WardrobeManager.Application.Users.Queries;
-using WardrobeManager.Application.Users.Validators;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Tests.Unit.Handlers;
@@ -16,7 +14,7 @@ public sealed class RegisterUserCommandHandlerTests
     private readonly IJwtTokenService _jwt = Substitute.For<IJwtTokenService>();
 
     private RegisterUserCommandHandler Sut()
-        => new(_users, _hasher, _jwt, new RegisterUserCommandValidator());
+        => new(_users, _hasher, _jwt);
 
     private static RegisterUserCommand Command() => new("alice@example.com", "passw0rd", "alice");
 
@@ -53,12 +51,6 @@ public sealed class RegisterUserCommandHandlerTests
         await Assert.ThrowsAsync<Exception>(() => Sut().Handle(Command(), CancellationToken.None));
     }
 
-    [Fact]
-    public async Task Handle_Throws_ValidationException_ForInvalidCommand()
-    {
-        await Assert.ThrowsAsync<ValidationException>(
-            () => Sut().Handle(Command() with { Email = "bad" }, CancellationToken.None));
-    }
 }
 
 [Trait("Category", "Unit")]
@@ -68,7 +60,7 @@ public sealed class LoginUserQueryHandlerTests
     private readonly IPasswordHasher _hasher = Substitute.For<IPasswordHasher>();
     private readonly IJwtTokenService _jwt = Substitute.For<IJwtTokenService>();
 
-    private LoginUserQueryHandler Sut() => new(_users, _hasher, _jwt, new LoginUserQueryValidator());
+    private LoginUserQueryHandler Sut() => new(_users, _hasher, _jwt);
     private static LoginUserQuery Query() => new("alice@example.com", "secret");
 
     [Fact]
@@ -109,7 +101,7 @@ public sealed class UpdateUserCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IPasswordHasher _hasher = Substitute.For<IPasswordHasher>();
 
-    private UpdateUserCommandHandler Sut() => new(_users, _hasher, new UpdateUserCommandValidator());
+    private UpdateUserCommandHandler Sut() => new(_users, _hasher);
 
     private (UpdateUserCommand cmd, User user) Setup(string? username = null, string? email = null, string? newPassword = null)
     {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { authApi } from '../services/wardrobeApi';
 import { getErrorMessage } from '../utils/errors';
 import { evaluatePasswordStrength, meetsPasswordPolicy } from '../utils/passwordStrength';

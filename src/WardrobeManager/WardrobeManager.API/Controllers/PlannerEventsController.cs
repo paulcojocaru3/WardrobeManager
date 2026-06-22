@@ -21,15 +21,6 @@ public sealed class PlannerEventsController : ControllerBase
         _mediator = mediator;
     }
 
-    [HttpGet("{userId}/test-alert")]
-    public async Task<ActionResult<WeatherAlertDto?>> GetTestAlert(Guid userId, CancellationToken ct)
-    {
-        if (userId != User.GetUserId()) return Forbid();
-        var query = new GetTestAlertQuery(User.GetUserId());
-        var result = await _mediator.Send(query, ct);
-        return Ok(result);
-    }
-
     [HttpGet("{userId}")]
     public async Task<ActionResult<GetPlannerEventsResult>> GetPlannerEvents(Guid userId, CancellationToken ct)
     {
@@ -48,7 +39,7 @@ public sealed class PlannerEventsController : ControllerBase
         return Ok(result);
     }
 
-    public record CreatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null);
+    public record CreatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null, int? ReuseAfterDays = null);
 
     [HttpPost]
     public async Task<ActionResult<Guid>> CreatePlannerEvent([FromBody] CreatePlannerEventRequest request, CancellationToken ct)
@@ -59,12 +50,12 @@ public sealed class PlannerEventsController : ControllerBase
             preferredStyles = new List<string>();
         }
 
-        var command = new CreatePlannerEventCommand(User.GetUserId(), request.Name, request.Type, request.Location, request.StartDate, request.EndDate, preferredStyles);
+        var command = new CreatePlannerEventCommand(User.GetUserId(), request.Name, request.Type, request.Location, request.StartDate, request.EndDate, preferredStyles, request.ReuseAfterDays);
         var result = await _mediator.Send(command, ct);
         return Ok(result);
     }
 
-    public record UpdatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null);
+    public record UpdatePlannerEventRequest(string Name, string Type, string Location, [property: JsonRequired] DateTime StartDate, [property: JsonRequired] DateTime EndDate, List<string>? PreferredStyles = null, int? ReuseAfterDays = null);
 
     [HttpPut("{plannerEventId}")]
     public async Task<IActionResult> UpdatePlannerEvent(Guid plannerEventId, [FromBody] UpdatePlannerEventRequest request, CancellationToken ct)
@@ -75,7 +66,7 @@ public sealed class PlannerEventsController : ControllerBase
             preferredStyles = new List<string>();
         }
 
-        var command = new UpdatePlannerEventCommand(User.GetUserId(), plannerEventId, request.Name, request.Type, request.Location, request.StartDate, request.EndDate, preferredStyles);
+        var command = new UpdatePlannerEventCommand(User.GetUserId(), plannerEventId, request.Name, request.Type, request.Location, request.StartDate, request.EndDate, preferredStyles, request.ReuseAfterDays);
         var result = await _mediator.Send(command, ct);
 
         if (!result)

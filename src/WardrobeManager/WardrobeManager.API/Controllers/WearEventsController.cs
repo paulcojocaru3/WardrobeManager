@@ -27,7 +27,7 @@ public sealed class WearEventsController : ControllerBase
         [FromQuery] DateTime? customEnd = null,
         CancellationToken ct = default)
     {
-        // Catches DateTime binding failures (SuppressModelStateInvalidFilter is on).
+        // catches DateTime binding failures (SuppressModelStateInvalidFilter is on).
         if (!ModelState.IsValid)
         {
             var details = ModelState.Values

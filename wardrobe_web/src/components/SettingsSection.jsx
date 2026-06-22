@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Button from './Button';
 import { evaluatePasswordStrength, meetsPasswordPolicy } from '../utils/passwordStrength';
 import { colorToHex } from '../constants/colors';
+import { outfitsApi } from '../services/wardrobeApi';
 
 const card = {
   background: 'var(--card-bg)',
@@ -10,7 +11,6 @@ const card = {
   padding: '22px 24px',
 };
 
-// Editorial Air: serif card titles. cardHTight for titles followed by a subtitle line.
 const cardH = {
   margin: '0 0 16px',
   fontFamily: 'var(--sw-font-serif)',
@@ -42,14 +42,12 @@ const input = {
   fontSize: '14px',
 };
 
-// A small curated palette; users can also type any color word. Swatch hexes come
-// from the canonical colorToHex resolver so they match the rest of the app.
+// keep preset colors aligned with the app swatches.
 const PRESET_COLORS = [
   'black', 'white', 'gray', 'navy', 'blue', 'red',
   'green', 'beige', 'brown', 'pink', 'purple', 'yellow',
 ];
 
-// Style for a color swatch: resolved hex, or a neutral ring when unknown.
 const swatchStyle = (name) => {
   const hex = colorToHex(name);
   return hex
@@ -73,15 +71,20 @@ const SettingsSection = ({
   onSavePreferences,
   onDeleteAccount,
   favoriteColors = [],
+  avoidColors = [],
   outerwearMode = 'auto',
   outerwearTempThreshold = 23,
+  varietyLevel = 'normal',
+  blockDuplicateUploads = false,
+  preferLightOnHotDays = true,
+  useGemmaStylistForOutfits = false,
+  defaultReuseAfterDays = 3,
   clothes = [],
   outfits = [],
   aiOutfitCount = 0,
 }) => {
   const [tab, setTab] = useState('Profile');
 
-  // Security form
   const [username, setUsername] = useState(userDisplayName === 'wardrobe user' ? '' : userDisplayName);
   const [email, setEmail] = useState(userEmail === 'no email' ? '' : userEmail);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -89,17 +92,38 @@ const SettingsSection = ({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  // Favorite colors
   const [colors, setColors] = useState(favoriteColors);
   const [colorInput, setColorInput] = useState('');
   const [colorsSaving, setColorsSaving] = useState(false);
 
-  // Outerwear policy
   const [owMode, setOwMode] = useState(outerwearMode || 'auto');
   const [owTemp, setOwTemp] = useState(outerwearTempThreshold ?? 23);
   const [owSaving, setOwSaving] = useState(false);
 
-  // Delete account
+  const [avoid, setAvoid] = useState(avoidColors);
+  const [avoidInput, setAvoidInput] = useState('');
+  const [avoidSaving, setAvoidSaving] = useState(false);
+  const [variety, setVariety] = useState(varietyLevel || 'normal');
+  const [blockDupes, setBlockDupes] = useState(blockDuplicateUploads);
+  const [lightOnHot, setLightOnHot] = useState(preferLightOnHotDays);
+  const [gemmaOnly, setGemmaOnly] = useState(useGemmaStylistForOutfits);
+  const [packingReuseDays, setPackingReuseDays] = useState(defaultReuseAfterDays ?? 3);
+  const [packingReuseEnabled, setPackingReuseEnabled] = useState(defaultReuseAfterDays !== null);
+
+  useEffect(() => {
+    setPackingReuseEnabled(defaultReuseAfterDays !== null);
+    if (defaultReuseAfterDays !== null) setPackingReuseDays(defaultReuseAfterDays);
+  }, [defaultReuseAfterDays]);
+
+  // load taste insights only when preferences opens.
+  const [insights, setInsights] = useState(null);
+  useEffect(() => {
+    if (tab !== 'Preferences' || insights !== null) return;
+    outfitsApi.getLearnedProfile()
+      .then((res) => setInsights(res.data))
+      .catch(() => setInsights({ topColors: [], topStyles: [], strongPairs: [] }));
+  }, [tab, insights]);
+
   const [confirmName, setConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
@@ -158,6 +182,58 @@ const SettingsSection = ({
 
   const removeColor = (c) => persistColors(colors.filter((x) => x !== c));
 
+  const persistAvoid = async (next) => {
+    setAvoid(next);
+    setAvoidSaving(true);
+    try {
+      await onSavePreferences({ avoidColors: next });
+    } catch {
+      /* keep local state */
+    } finally {
+      setAvoidSaving(false);
+    }
+  };
+
+  const addAvoid = (c) => {
+    const clean = (c || '').trim().toLowerCase();
+    if (!clean || avoid.includes(clean)) return;
+    persistAvoid([...avoid, clean]);
+    setAvoidInput('');
+  };
+
+  const removeAvoid = (c) => persistAvoid(avoid.filter((x) => x !== c));
+
+  const saveVariety = (next) => {
+    setVariety(next);
+    onSavePreferences({ varietyLevel: next }).catch(() => {});
+  };
+
+  const saveBlockDupes = (next) => {
+    setBlockDupes(next);
+    onSavePreferences({ blockDuplicateUploads: next }).catch(() => {});
+  };
+
+  const saveLightOnHot = (next) => {
+    setLightOnHot(next);
+    onSavePreferences({ preferLightOnHotDays: next }).catch(() => {});
+  };
+
+  const saveGemmaOnly = (next) => {
+    setGemmaOnly(next);
+    onSavePreferences({ useGemmaStylistForOutfits: next }).catch(() => {});
+  };
+
+  const savePackingReuseEnabled = (enabled) => {
+    setPackingReuseEnabled(enabled);
+    onSavePreferences({ defaultReuseAfterDays: enabled ? packingReuseDays : null }).catch(() => {});
+  };
+
+  const savePackingReuseDays = () => {
+    const days = Math.max(2, Math.min(14, Number(packingReuseDays) || 3));
+    setPackingReuseDays(days);
+    if (packingReuseEnabled) onSavePreferences({ defaultReuseAfterDays: days }).catch(() => {});
+  };
+
   const saveOuterwear = async (payload) => {
     setOwSaving(true);
     try {
@@ -196,7 +272,29 @@ const SettingsSection = ({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '760px', width: '100%', margin: '0 auto' }}>
+    <div className="settings-shell">
+      <section className="settings-hero">
+        <div className="settings-avatar">{userInitials}</div>
+        <div className="settings-hero-copy">
+          <p className="settings-kicker">Account settings</p>
+          <h2>{userDisplayName}</h2>
+          <p>{userEmail}</p>
+          <span>Member since {memberSince}</span>
+        </div>
+        <div className="settings-hero-stats">
+          {[
+            { n: clothes.length, t: 'items' },
+            { n: outfits.length, t: 'outfits' },
+            { n: aiOutfitCount, t: 'ai looks' },
+          ].map((s) => (
+            <div key={s.t} className="settings-stat">
+              <strong>{s.n}</strong>
+              <span>{s.t}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <div className="set-tabs">
         {TABS.map((t) => (
           <button key={t} className={`set-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
@@ -204,41 +302,36 @@ const SettingsSection = ({
       </div>
 
       {tab === 'Profile' && (
-        <>
-          <div style={{ ...card, display: 'flex', alignItems: 'center', gap: '18px' }}>
-            <div style={{
-              width: '60px', height: '60px', borderRadius: '50%',
-              background: 'var(--bg-soft)', border: '1px solid var(--border-subtle)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--sw-font-serif)', fontStyle: 'italic', fontSize: '24px',
-              color: 'var(--accent)', flexShrink: 0,
-            }}>{userInitials}</div>
-            <div style={{ minWidth: 0 }}>
-              <h3 style={{ margin: 0, fontFamily: 'var(--sw-font-serif)', fontWeight: 400, fontSize: '26px', letterSpacing: '-0.01em', color: 'var(--fg)' }}>{userDisplayName}</h3>
-              <p style={{ margin: '3px 0 0', color: 'var(--fg-subtle)', fontSize: '13px' }}>{userEmail}</p>
-              <p style={{ margin: '8px 0 0', fontFamily: 'var(--sw-font-mono)', fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--fg-muted)' }}>
-                Member since {memberSince}
-              </p>
+        <div className="settings-grid">
+          <div style={card}>
+            <h3 style={cardHTight}>Profile summary</h3>
+            <p className="settings-copy">
+              This account owns your wardrobe, generated outfits, planner events and recommender preferences.
+            </p>
+            <div className="settings-summary-list">
+              <span>Preferred city</span>
+              <strong>{city}</strong>
+              <span>Theme</span>
+              <strong>{isDarkMode ? 'Dark mode' : 'Light mode'}</strong>
+              <span>Gemma stylist</span>
+              <strong>{gemmaOnly ? 'Enabled' : 'Optional'}</strong>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
-            {[
-              { n: clothes.length, t: 'items' },
-              { n: outfits.length, t: 'outfits' },
-              { n: aiOutfitCount, t: 'ai looks' },
-            ].map((s) => (
-              <div key={s.t} style={{ ...card, padding: '18px' }}>
-                <div style={{ fontSize: '30px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--fg)', lineHeight: 1 }}>{s.n}</div>
-                <div style={{ marginTop: '8px', fontFamily: 'var(--sw-font-mono)', fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--fg-muted)' }}>{s.t}</div>
-              </div>
-            ))}
+          <div style={card}>
+            <h3 style={cardHTight}>Quick account actions</h3>
+            <p className="settings-copy">Update your city, change the interface theme, or move to security settings for credentials.</p>
+            <div className="settings-action-row">
+              <Button label="Change city" variant="secondary" onClick={onOpenCityModal} />
+              <Button label={isDarkMode ? 'Use light mode' : 'Use dark mode'} variant="secondary" onClick={toggleTheme} />
+              <Button label="Security" variant="secondary" onClick={() => setTab('Security')} />
+            </div>
           </div>
-        </>
+        </div>
       )}
 
       {tab === 'Preferences' && (
-        <>
+        <div className="settings-grid">
           <div style={card}>
             <h3 style={cardH}>Location &amp; theme</h3>
 
@@ -305,6 +398,152 @@ const SettingsSection = ({
 
           <div style={card}>
             <h3 style={cardHTight}>
+              Colors to avoid {avoidSaving && <span style={{ opacity: 0.5, fontSize: '13px', fontFamily: 'var(--sw-font-mono)' }}>· saving…</span>}
+            </h3>
+            <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
+              Suggestions will gently steer away from these colors.
+            </p>
+
+            {avoid.length > 0 && (
+              <div className="color-chips">
+                {avoid.map((c) => (
+                  <span key={c} className="color-chip">
+                    <span className="swatch" style={swatchStyle(c)} />
+                    {c}
+                    <span className="x" onClick={() => removeAvoid(c)} title="Remove">×</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px' }}>
+              {PRESET_COLORS.filter((n) => !avoid.includes(n)).map((name) => (
+                <button key={name} className="color-chip" style={{ cursor: 'pointer' }} onClick={() => addAvoid(name)}>
+                  <span className="swatch" style={swatchStyle(name)} />
+                  {name}
+                  <span style={{ fontWeight: 800, opacity: 0.5 }}>+</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+              <input
+                style={{ ...input, flex: 1 }}
+                value={avoidInput}
+                onChange={(e) => setAvoidInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAvoid(avoidInput); } }}
+                placeholder="add another color to avoid"
+              />
+              <Button label="ADD" variant="secondary" onClick={() => addAvoid(avoidInput)} />
+            </div>
+          </div>
+
+          <div style={card}>
+            <h3 style={cardHTight}>Packing strategy</h3>
+            <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
+              Default rotation for tops and bottoms in new events. Shoes, outerwear and accessories remain reusable every day.
+            </p>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="checkbox"
+                checked={packingReuseEnabled}
+                onChange={(e) => savePackingReuseEnabled(e.target.checked)}
+              />
+              Reuse tops and bottoms during an event
+            </label>
+
+            {packingReuseEnabled && (
+              <div style={{ marginTop: '16px', maxWidth: '220px' }}>
+                <label style={label}>Reuse after days</label>
+                <input
+                  style={input}
+                  type="number"
+                  min="2"
+                  max="14"
+                  value={packingReuseDays}
+                  onChange={(e) => setPackingReuseDays(e.target.value)}
+                  onBlur={savePackingReuseDays}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div style={card}>
+            <h3 style={cardHTight}>Generation defaults</h3>
+            <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
+              How outfit suggestions behave by default.
+            </p>
+
+            <div>
+              <label style={label}>Variety</label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {['low', 'normal', 'high'].map((lvl) => (
+                  <Button
+                    key={lvl}
+                    label={lvl.toUpperCase()}
+                    variant={variety === lvl ? 'primary' : 'secondary'}
+                    onClick={() => saveVariety(lvl)}
+                  />
+                ))}
+              </div>
+              <p style={{ margin: '8px 0 0', opacity: 0.55, fontSize: '12px' }}>
+                Higher variety spreads wear and avoids repeating recent items.
+              </p>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', marginTop: '18px' }}>
+              <input
+                type="checkbox"
+                checked={lightOnHot}
+                onChange={(e) => saveLightOnHot(e.target.checked)}
+              />
+              Lean lighter on hot days
+            </label>
+            <p style={{ margin: '8px 0 0', opacity: 0.55, fontSize: '12px' }}>
+              The warmer it gets, the more suggestions favor short-sleeve tops and shorts.
+            </p>
+
+            <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '18px 0' }} />
+
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="checkbox"
+                checked={gemmaOnly}
+                onChange={(e) => saveGemmaOnly(e.target.checked)}
+                style={{ marginTop: '2px' }}
+              />
+              <span>
+                Use Gemma3 as the final stylist
+                <span style={{ display: 'block', marginTop: '5px', opacity: 0.58, fontSize: '12px', lineHeight: 1.45 }}>
+                  FashionCLIP still finds the wardrobe candidates, but Gemma3 chooses the final outfit before it opens. This is slower, but the first result is the styled result.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div style={card}>
+            <h3 style={cardHTight}>Wardrobe uploads</h3>
+            <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
+              How uploads behave when a near-identical item is detected.
+            </p>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="checkbox"
+                checked={blockDupes}
+                onChange={(e) => saveBlockDupes(e.target.checked)}
+              />
+              Block duplicate uploads automatically
+            </label>
+            <p style={{ margin: '8px 0 0', opacity: 0.55, fontSize: '12px' }}>
+              When on, an item detected as a duplicate is rejected with a notification instead of asking you to confirm.
+            </p>
+          </div>
+
+          <div style={card}>
+            <h3 style={cardHTight}>
               Outerwear {owSaving && <span style={{ opacity: 0.5, fontSize: '13px', fontFamily: 'var(--sw-font-mono)' }}>· saving…</span>}
             </h3>
             <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
@@ -342,7 +581,66 @@ const SettingsSection = ({
               </div>
             )}
           </div>
-        </>
+
+          <div style={card}>
+            <h3 style={cardHTight}>How your recommender has adapted</h3>
+            <p style={{ margin: '0 0 14px', opacity: 0.6, fontSize: '13px' }}>
+              Learned from the outfits you accept, wear and favorite. These gently nudge future suggestions.
+            </p>
+            {insights === null ? (
+              <p style={{ opacity: 0.5, fontSize: '13px', fontFamily: 'var(--sw-font-mono)' }}>loading…</p>
+            ) : (insights.topColors?.length || insights.topStyles?.length || insights.avoidedColors?.length || insights.strongPairs?.length) ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {insights.topColors?.length > 0 && (
+                  <div>
+                    <label style={label}>Colors you tend to like</label>
+                    <div className="color-chips">
+                      {insights.topColors.map((c) => (
+                        <span key={c.label} className="color-chip">
+                          <span className="swatch" style={swatchStyle(c.label)} />
+                          {c.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {insights.avoidedColors?.length > 0 && (
+                  <div>
+                    <label style={label}>Colors you tend to avoid</label>
+                    <div className="color-chips">
+                      {insights.avoidedColors.map((c) => (
+                        <span key={c.label} className="color-chip" style={{ opacity: 0.6 }}>
+                          <span className="swatch" style={swatchStyle(c.label)} />
+                          {c.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {insights.topStyles?.length > 0 && (
+                  <div>
+                    <label style={label}>Styles you reach for</label>
+                    <div style={{ fontSize: '14px' }}>{insights.topStyles.map((s) => s.label).join(' · ')}</div>
+                  </div>
+                )}
+                {insights.strongPairs?.length > 0 && (
+                  <div>
+                    <label style={label}>Pairings that work for you</label>
+                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '14px', opacity: 0.85 }}>
+                      {insights.strongPairs.map((p, i) => (
+                        <li key={i}>{p.itemA} + {p.itemB}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p style={{ opacity: 0.6, fontSize: '13px' }}>
+                Nothing learned yet — accept, wear and favorite a few AI outfits and your taste will show up here.
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {tab === 'Security' && (

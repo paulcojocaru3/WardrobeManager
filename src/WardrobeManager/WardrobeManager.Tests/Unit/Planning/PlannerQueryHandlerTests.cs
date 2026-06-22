@@ -48,19 +48,6 @@ public sealed class PlannerQueryHandlerTests
     private void ReturnsEvents(params PlannerEvent[] events)
         => _planner.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(events.ToList());
 
-    // ---- GetTestAlertQuery ----
-    [Fact]
-    public async Task TestAlert_ReturnsSyntheticSignificantAlert()
-    {
-        var alert = await new GetTestAlertQueryHandler().Handle(new GetTestAlertQuery(_userId), CancellationToken.None);
-
-        Assert.NotNull(alert);
-        Assert.True(alert!.IsAvailable);
-        Assert.True(alert.IsSignificantChange);
-        Assert.Equal("Test Event", alert.EventName);
-    }
-
-    // ---- GetPlannerEventsQuery ----
     [Fact]
     public async Task Planner_ReturnsActiveEvents_MappedToDtos()
     {

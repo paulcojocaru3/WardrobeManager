@@ -19,6 +19,11 @@ public sealed class GlobalExceptionMiddleware(RequestDelegate next, ILogger<Glob
                 Errors = ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage })
             });
         }
+        catch (BadHttpRequestException ex)
+        {
+            context.Response.StatusCode = ex.StatusCode;
+            await context.Response.WriteAsJsonAsync(new { Error = ex.Message });
+        }
         catch (UnauthorizedAccessException ex)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;

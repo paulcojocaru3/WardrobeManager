@@ -1,7 +1,9 @@
 <Project>
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
+        <Version>1.0.0</Version>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     </PropertyGroup>
 </Project>

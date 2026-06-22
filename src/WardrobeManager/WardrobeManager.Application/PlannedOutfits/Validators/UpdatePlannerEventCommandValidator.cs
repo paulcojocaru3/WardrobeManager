@@ -15,5 +15,10 @@ public sealed class UpdatePlannerEventCommandValidator : AbstractValidator<Updat
         RuleFor(x => x.EndDate.Date)
             .GreaterThanOrEqualTo(x => x.StartDate.Date)
             .WithMessage("End date must be greater than or equal to start date.");
+
+        RuleFor(x => x.ReuseAfterDays)
+            .GreaterThanOrEqualTo(2)
+            .When(x => x.ReuseAfterDays.HasValue)
+            .WithMessage("Reuse interval must be at least 2 days.");
     }
 }

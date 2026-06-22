@@ -1,10 +1,12 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WardrobeManager.Application.Abstractions;
+using WardrobeManager.Application.Outfits.Feasibility;
 using WardrobeManager.Application.Outfits.Generation;
 using WardrobeManager.Application.Outfits.Prompting;
 using WardrobeManager.Application.PlannedOutfits.Commands;
 using WardrobeManager.Domain.Entities;
+using WardrobeManager.Domain.Enums;
 
 namespace WardrobeManager.Tests.Unit.Planning;
 
@@ -18,14 +20,28 @@ public sealed class EventOutfitsHandlerTests
     private readonly IWeatherService _weather = Substitute.For<IWeatherService>();
     private readonly IEventOutfitPlanningService _planning = Substitute.For<IEventOutfitPlanningService>();
     private readonly IStartItemSelector _selector = Substitute.For<IStartItemSelector>();
+    private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly IOutfitStylist _stylist = Substitute.For<IOutfitStylist>();
+    private readonly IItemPairScoreRepository _pairScores = Substitute.For<IItemPairScoreRepository>();
+    private readonly IUserLearningProfileRepository _learningProfiles = Substitute.For<IUserLearningProfileRepository>();
+    private readonly IMlService _ml = Substitute.For<IMlService>();
+    private readonly IThermalRules _thermal = Substitute.For<IThermalRules>();
+    private readonly IOccasionFormalityRules _occasion = Substitute.For<IOccasionFormalityRules>();
+    private readonly IOutfitFeedbackRepository _feedback = Substitute.For<IOutfitFeedbackRepository>();
     private readonly Guid _userId = Guid.NewGuid();
+
+    private StylistOutfitComposer Composer() => new(
+        _stylist, _pairScores, _learningProfiles, NullLogger<StylistOutfitComposer>.Instance);
+    private StylistCandidatePoolBuilder PoolBuilder() => new(_clothing, _ml, _thermal, NullLogger<StylistCandidatePoolBuilder>.Instance);
 
     private GenerateEventOutfitsCommandHandler GenerateSut() => new(
         _planner, _outfits, _clothing, _generator, _weather, _planning, _selector,
+        _users, Composer(), PoolBuilder(), new StylistSettings(), _occasion, _feedback,
         NullLogger<GenerateEventOutfitsCommandHandler>.Instance);
 
     private RegenerateEventItineraryOutfitCommandHandler RegenerateSut() => new(
         _planner, _outfits, _generator, _clothing, _planning, _weather,
+        _users, Composer(), PoolBuilder(), new StylistSettings(), _occasion, _feedback,
         NullLogger<RegenerateEventItineraryOutfitCommandHandler>.Instance);
 
     // ---- builders ----
@@ -194,6 +210,37 @@ public sealed class EventOutfitsHandlerTests
         await _outfits.DidNotReceive().AddAsync(Arg.Any<Outfit>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Generate_DoesNotDuplicateExistingDay_AndUsesItForCooldown()
+    {
+        var ev = Event(days: 2);
+        ev.ReuseAfterDays = 3;
+        var existingTop = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Top };
+        ev.Itineraries.Add(Itinerary(ev.StartDate, new Outfit
+        {
+            Id = Guid.NewGuid(),
+            Items = new List<ClothingItem> { existingTop }
+        }));
+        _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
+        _clothing.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(Wardrobe(5));
+        StubForecast(2);
+        StubResolveDayPlan();
+        StubSelectorReturns(WithEmbedding());
+        StubGeneratorReturnsItem();
+        StubResolvedItems(1);
+
+        var result = await GenerateSut().Handle(
+            new GenerateEventOutfitsCommand(_userId, ev.Id), CancellationToken.None);
+
+        Assert.Equal(1, result.OutfitsCreated);
+        await _planner.Received(1).AddItineraryAsync(Arg.Any<EventItinerary>(), Arg.Any<CancellationToken>());
+        await _generator.Received(1).GenerateAiOutfitAsync(
+            _userId,
+            Arg.Any<Guid>(),
+            Arg.Is<OutfitGenerationOptions>(options => options.ExcludedItemIds.Contains(existingTop.Id)),
+            Arg.Any<CancellationToken>());
+    }
+
     // ================= RegenerateEventItineraryOutfitCommandHandler =================
 
     [Fact]
@@ -295,5 +342,35 @@ public sealed class EventOutfitsHandlerTests
 
         Assert.True(await RegenerateSut().Handle(
             new RegenerateEventItineraryOutfitCommand(_userId, ev.Id, it.Id), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Regenerate_ExcludesNearbyTopFromEveryGeneratorSlot()
+    {
+        var ev = Event(days: 2);
+        ev.ReuseAfterDays = 3;
+        var nearbyTop = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Top };
+        ev.Itineraries.Add(Itinerary(ev.StartDate, new Outfit
+        {
+            Id = Guid.NewGuid(),
+            Items = new List<ClothingItem> { nearbyTop }
+        }));
+        var target = Itinerary(ev.StartDate.AddDays(1));
+        ev.Itineraries.Add(target);
+        _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
+        StubForecast(2);
+        StubResolveDayPlan();
+        StubPlanningSelectStartReturns(WithEmbedding());
+        StubGeneratorReturnsItem();
+        StubResolvedItems(1);
+
+        Assert.True(await RegenerateSut().Handle(
+            new RegenerateEventItineraryOutfitCommand(_userId, ev.Id, target.Id), CancellationToken.None));
+
+        await _generator.Received(1).GenerateAiOutfitAsync(
+            _userId,
+            Arg.Any<Guid>(),
+            Arg.Is<OutfitGenerationOptions>(options => options.ExcludedItemIds.Contains(nearbyTop.Id)),
+            Arg.Any<CancellationToken>());
     }
 }

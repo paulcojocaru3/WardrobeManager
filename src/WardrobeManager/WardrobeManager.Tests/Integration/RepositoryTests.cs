@@ -1,3 +1,4 @@
+using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Domain.Enums;
 using WardrobeManager.Infrastructure.Repositories;
@@ -58,8 +59,8 @@ public sealed class RepositoryTests
     public async Task OutfitRepository_PersistsWithItems_AndListsByUser()
     {
         var user = await SeedUserAsync();
-        var top = new ClothingItem { UserId = user.Id, Name = "Top", Type = ClothingType.Top, OriginalImageUrl = "x" };
-        var bottom = new ClothingItem { UserId = user.Id, Name = "Bottom", Type = ClothingType.Bottom, OriginalImageUrl = "x" };
+        var top = new ClothingItem { UserId = user.Id, Name = "Top", Type = ClothingType.Top };
+        var bottom = new ClothingItem { UserId = user.Id, Name = "Bottom", Type = ClothingType.Bottom };
 
         await using (var ctx = _fixture.CreateContext())
         {
@@ -100,7 +101,7 @@ public sealed class RepositoryTests
     public async Task WearEventRepository_FiltersByDateWindow()
     {
         var user = await SeedUserAsync();
-        var item = new ClothingItem { UserId = user.Id, Name = "Top", Type = ClothingType.Top, OriginalImageUrl = "x" };
+        var item = new ClothingItem { UserId = user.Id, Name = "Top", Type = ClothingType.Top };
         await using (var ctx = _fixture.CreateContext())
         {
             ctx.ClothingItems.Add(item);
@@ -164,73 +165,94 @@ public sealed class RepositoryTests
     }
 
     [Fact]
-    public async Task OutfitFeedbackRepository_RecordsActions_AndFiltersTrainingRows()
+    public async Task OutfitFeedbackRepository_RecordsActions_AndReadsByGeneration()
     {
         var userId = Guid.NewGuid();
         var generationId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-        var impression = new OutfitFeedback
+        var item1 = Guid.NewGuid();
+        var item2 = Guid.NewGuid();
+        var impressions = new[]
         {
-            UserId = userId, GenerationId = generationId, ClothingItemId = itemId,
-            SlotType = ClothingType.Top, Action = FeedbackAction.Shown,
-            EvaluatorScores = new() { ["Style"] = 0.5 },
+            new OutfitFeedback { UserId = userId, GenerationId = generationId, ClothingItemId = item1, SlotType = ClothingType.Top, Rank = 0, Action = FeedbackAction.Shown },
+            new OutfitFeedback { UserId = userId, GenerationId = generationId, ClothingItemId = item2, SlotType = ClothingType.Bottom, Rank = 0, Action = FeedbackAction.Shown },
         };
 
         await using (var ctx = _fixture.CreateContext())
         {
-            await new OutfitFeedbackRepository(ctx).AddImpressionsAsync(new[] { impression });
+            await new OutfitFeedbackRepository(ctx).AddImpressionsAsync(impressions);
         }
 
         await using (var ctx = _fixture.CreateContext())
         {
             var repo = new OutfitFeedbackRepository(ctx);
-            Assert.Empty(await repo.GetTrainingRowsAsync(userId)); // only Shown so far
-            await repo.RecordActionAsync(userId, generationId, itemId, FeedbackAction.Accepted);
+            await repo.RecordActionAsync(userId, generationId, item1, FeedbackAction.Accepted);
+            // batch-mark both items Worn
+            await repo.RecordActionsForItemsAsync(userId, generationId, new[] { item1, item2 }, FeedbackAction.Worn);
         }
 
         await using (var ctx = _fixture.CreateContext())
         {
-            var repo = new OutfitFeedbackRepository(ctx);
-            var rows = await repo.GetTrainingRowsAsync(userId);
-            Assert.Single(rows);
-            Assert.Equal(FeedbackAction.Accepted, rows[0].Action);
-            Assert.Equal(1, await repo.CountActionableAsync(userId));
+            var rows = await new OutfitFeedbackRepository(ctx).GetByGenerationAsync(userId, generationId);
+            Assert.Equal(2, rows.Count);
+            Assert.All(rows, r => Assert.Equal(FeedbackAction.Worn, r.Action));
         }
     }
 
     [Fact]
-    public async Task UserEvaluatorWeightsRepository_InsertsThenUpdates()
+    public async Task ItemPairScoreRepository_AccruesAndExposesCompatibility()
     {
         var userId = Guid.NewGuid();
-        var weights = new UserEvaluatorWeights
-        {
-            UserId = userId, MlWeight = 0.2, TrainedOnSamples = 10,
-            Weights = new() { ["Style"] = 0.3 },
-        };
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var (lo, hi) = ItemPair.Canonical(a, b);
 
         await using (var ctx = _fixture.CreateContext())
         {
-            await new UserEvaluatorWeightsRepository(ctx).UpsertAsync(weights);
+            var repo = new ItemPairScoreRepository(ctx);
+            // one positive observation -> below the >=2 gate, not yet exposed
+            await repo.UpsertBatchAsync(userId, new[] { new ItemPairDelta(a, b, 1, 1, 0) });
+            Assert.Empty(await repo.GetCompatibilityMapAsync(userId));
+
+            // a second positive observation -> now trusted
+            await repo.UpsertBatchAsync(userId, new[] { new ItemPairDelta(b, a, 1, 1, 0) });
         }
 
         await using (var ctx = _fixture.CreateContext())
         {
-            var repo = new UserEvaluatorWeightsRepository(ctx);
-            var loaded = await repo.GetByUserIdAsync(userId);
-            Assert.NotNull(loaded);
-            Assert.Equal(10, loaded!.TrainedOnSamples);
+            var map = await new ItemPairScoreRepository(ctx).GetCompatibilityMapAsync(userId);
+            Assert.True(map.TryGetValue((lo, hi), out var compat));
+            Assert.Equal(1.0, compat, 3);
+        }
+    }
 
-            await repo.UpsertAsync(new UserEvaluatorWeights
+    [Fact]
+    public async Task UserLearningProfileRepository_InsertsThenUpdates()
+    {
+        var userId = Guid.NewGuid();
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            await new UserLearningProfileRepository(ctx).UpsertAsync(new UserLearningProfile
             {
-                UserId = userId, MlWeight = 0.5, TrainedOnSamples = 25, Weights = new() { ["Weather"] = 0.4 },
+                UserId = userId, ColorScores = new() { ["blue"] = 0.7 }, StyleScores = new() { ["casual"] = 0.6 },
             });
         }
 
         await using (var ctx = _fixture.CreateContext())
         {
-            var loaded = await new UserEvaluatorWeightsRepository(ctx).GetByUserIdAsync(userId);
-            Assert.Equal(25, loaded!.TrainedOnSamples);
-            Assert.Equal(0.5, loaded.MlWeight);
+            var repo = new UserLearningProfileRepository(ctx);
+            var loaded = await repo.GetByUserIdAsync(userId);
+            Assert.NotNull(loaded);
+            Assert.Equal(0.7, loaded!.ColorScores["blue"], 3);
+
+            loaded.ColorScores["blue"] = 0.9;
+            await repo.UpsertAsync(loaded);
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var loaded = await new UserLearningProfileRepository(ctx).GetByUserIdAsync(userId);
+            Assert.Equal(0.9, loaded!.ColorScores["blue"], 3);
         }
     }
 
@@ -240,7 +262,7 @@ public sealed class RepositoryTests
         var user = await SeedUserAsync();
         var item = new ClothingItem
         {
-            UserId = user.Id, Name = "Shirt", Type = ClothingType.Top, OriginalImageUrl = "x",
+            UserId = user.Id, Name = "Shirt", Type = ClothingType.Top,
             SubType = null, Embedding = new float[512], // no sub-type + has embedding
         };
 
@@ -256,7 +278,6 @@ public sealed class RepositoryTests
             Assert.Single(await repo.GetByIdsAsync(new[] { item.Id }));
             Assert.Single(await repo.GetByUserIdAsync(user.Id));
             Assert.Single(await repo.GetMissingSubTypeWithEmbeddingAsync(user.Id));
-            Assert.True(repo.Query().Any(c => c.Id == item.Id));
 
             var loaded = await repo.GetByIdAsync(item.Id);
             loaded!.Name = "Renamed";
@@ -265,7 +286,7 @@ public sealed class RepositoryTests
             await repo.UpdateRangeAsync(new[] { loaded });
         }
 
-        // Wear recency: add a wear event then read it back.
+        // wear recency: add a wear event then read it back.
         await using (var ctx = _fixture.CreateContext())
         {
             ctx.WearEvents.Add(new WearEvent { UserId = user.Id, ClothingItemId = item.Id, WearDate = DateTime.UtcNow });

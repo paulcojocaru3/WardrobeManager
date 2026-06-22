@@ -1,11 +1,9 @@
-using FluentValidation;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Outfits.Commands;
+using WardrobeManager.Application.Outfits.Feasibility;
 using WardrobeManager.Application.Outfits.Generation;
-using WardrobeManager.Application.Outfits.Prompting;
-using WardrobeManager.Application.Outfits.Validators;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Domain.Enums;
 
@@ -16,8 +14,27 @@ public sealed class GenerateAiOutfitCommandHandlerTests
 {
     private readonly IOutfitGenerator _generator = Substitute.For<IOutfitGenerator>();
     private readonly IWeatherService _weather = Substitute.For<IWeatherService>();
+    private readonly IClothingRepository _clothing = Substitute.For<IClothingRepository>();
+    private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly IOutfitFeedbackRepository _feedback = Substitute.For<IOutfitFeedbackRepository>();
+    private readonly IOccasionFormalityRules _occasion = Substitute.For<IOccasionFormalityRules>();
+    private readonly IOutfitStylist _stylist = Substitute.For<IOutfitStylist>();
+    private readonly IItemPairScoreRepository _pairScores = Substitute.For<IItemPairScoreRepository>();
+    private readonly IUserLearningProfileRepository _learningProfiles = Substitute.For<IUserLearningProfileRepository>();
+    private readonly IMlService _ml = Substitute.For<IMlService>();
+    private readonly IThermalRules _thermal = Substitute.For<IThermalRules>();
 
-    private GenerateAiOutfitCommandHandler Sut() => new(_generator, _weather, new GenerateAiOutfitCommandValidator());
+    private GenerateAiOutfitCommandHandler Sut() => new(
+        _generator,
+        _weather,
+        _clothing,
+        _users,
+        _feedback,
+        _occasion,
+        new StylistOutfitComposer(_stylist, _pairScores, _learningProfiles, NullLogger<StylistOutfitComposer>.Instance),
+        new StylistCandidatePoolBuilder(_clothing, _ml, _thermal, NullLogger<StylistCandidatePoolBuilder>.Instance),
+        new StylistSettings(),
+        NullLogger<GenerateAiOutfitCommandHandler>.Instance);
 
     [Fact]
     public async Task Handle_ResolvesWeather_WhenCityGiven()
@@ -44,10 +61,22 @@ public sealed class GenerateAiOutfitCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_Throws_ForInvalidThreshold()
+    public async Task Handle_AnchorsOnLeastWornItem_AndPrefersUnused_InRediscover()
     {
-        await Assert.ThrowsAsync<ValidationException>(
-            () => Sut().Handle(new GenerateAiOutfitCommand(Guid.NewGuid(), Guid.NewGuid(), 5.0), CancellationToken.None));
+        var seed = new ClothingItem { Id = Guid.NewGuid() };
+        _clothing.GetLeastWornCandidatesAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ClothingItem> { seed });
+        _feedback.GetRecentlyShownItemIdsAsync(Arg.Any<Guid>(), Arg.Any<DateTime>(), Arg.Any<ClothingType?>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Guid>());
+        _generator.GenerateAiOutfitAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new AiGeneratedOutfitDto());
+
+        await Sut().Handle(new GenerateAiOutfitCommand(Guid.NewGuid(), StartItemId: null, AnchorOnUnused: true), CancellationToken.None);
+
+        await _generator.Received(1).GenerateAiOutfitAsync(
+            Arg.Any<Guid>(), seed.Id,
+            Arg.Is<OutfitGenerationOptions>(o => o.PreferUnusedItems),
+            Arg.Any<CancellationToken>());
     }
 }
 
@@ -59,7 +88,7 @@ public sealed class GenerateOutfitCommandHandlerTests
     private readonly IOutfitRepository _outfits = Substitute.For<IOutfitRepository>();
     private readonly IOutfitGenerator _generator = Substitute.For<IOutfitGenerator>();
 
-    private GenerateOutfitCommandHandler Sut() => new(_users, _clothing, _outfits, _generator, new GenerateOutfitCommandValidator());
+    private GenerateOutfitCommandHandler Sut() => new(_users, _clothing, _outfits, _generator);
 
     [Fact]
     public async Task Handle_PersistsGeneratedOutfit()
@@ -84,111 +113,5 @@ public sealed class GenerateOutfitCommandHandlerTests
         _users.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((User?)null);
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => Sut().Handle(new GenerateOutfitCommand(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None));
-    }
-}
-
-[Trait("Category", "Unit")]
-public sealed class GenerateOutfitFromPromptCommandHandlerTests
-{
-    private readonly IPromptIntentService _intent = Substitute.For<IPromptIntentService>();
-    private readonly IOccasionClassifier _occasion = Substitute.For<IOccasionClassifier>();
-    private readonly IGarmentClassifier _garment = Substitute.For<IGarmentClassifier>();
-    private readonly IStartItemSelector _selector = Substitute.For<IStartItemSelector>();
-    private readonly IOutfitGenerator _generator = Substitute.For<IOutfitGenerator>();
-    private readonly IWeatherService _weather = Substitute.For<IWeatherService>();
-
-    private GenerateOutfitFromPromptCommandHandler Sut() => new(
-        _intent, _occasion, _garment, _selector, _generator, _weather,
-        new GenerateOutfitFromPromptCommandValidator(),
-        NullLogger<GenerateOutfitFromPromptCommandHandler>.Instance);
-
-    private void GivenParsed(PromptIntent intent)
-        => _intent.ParseAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(intent);
-
-    [Fact]
-    public async Task Handle_EnrichesIntent_AndGeneratesOutfit()
-    {
-        GivenParsed(new PromptIntent { City = "Paris" });
-        _occasion.ClassifyStyle(Arg.Any<string>()).Returns("Casual");
-        _garment.Detect(Arg.Any<string>()).Returns(new[] { new RequestedGarment("shorts", ClothingType.Bottom) });
-        _weather.GetCurrentWeatherAsync("Paris", Arg.Any<CancellationToken>()).Returns(new WeatherData(28, "Clear", "Summer"));
-        var seed = new ClothingItem { Id = Guid.NewGuid() };
-        _selector.SelectAsync(Arg.Any<Guid>(), Arg.Any<PromptIntent>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<WeatherData?>(), Arg.Any<CancellationToken>()).Returns(seed);
-        var dto = new AiGeneratedOutfitDto { Name = "Prompt Look" };
-        _generator.GenerateAiOutfitAsync(Arg.Any<Guid>(), seed.Id, Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>()).Returns(dto);
-
-        var result = await Sut().Handle(new GenerateOutfitFromPromptCommand(Guid.NewGuid(), "shorts for Paris"), CancellationToken.None);
-
-        Assert.Same(dto, result.Outfit);
-        Assert.Equal("Casual", result.Intent.Style);          // occasion map overrode
-        Assert.Single(result.Intent.RequestedGarments);       // garment detected
-    }
-
-    [Fact]
-    public async Task Handle_ContinuesWithoutWeather_WhenWeatherFails()
-    {
-        GivenParsed(new PromptIntent { City = "Nowhere" });
-        _occasion.ClassifyStyle(Arg.Any<string>()).Returns((string?)null);
-        _garment.Detect(Arg.Any<string>()).Returns(Array.Empty<RequestedGarment>());
-        _weather.GetCurrentWeatherAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns<WeatherData>(_ => throw new InvalidOperationException("no key"));
-        _selector.SelectAsync(Arg.Any<Guid>(), Arg.Any<PromptIntent>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<WeatherData?>(), Arg.Any<CancellationToken>())
-            .Returns(new ClothingItem { Id = Guid.NewGuid() });
-        _generator.GenerateAiOutfitAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>())
-            .Returns(new AiGeneratedOutfitDto());
-
-        var result = await Sut().Handle(new GenerateOutfitFromPromptCommand(Guid.NewGuid(), "something"), CancellationToken.None);
-
-        Assert.NotNull(result.Outfit);
-    }
-
-    [Fact]
-    public async Task Handle_Throws_WhenNoSeedItem()
-    {
-        GivenParsed(new PromptIntent());
-        _occasion.ClassifyStyle(Arg.Any<string>()).Returns((string?)null);
-        _garment.Detect(Arg.Any<string>()).Returns(Array.Empty<RequestedGarment>());
-        _selector.SelectAsync(Arg.Any<Guid>(), Arg.Any<PromptIntent>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<WeatherData?>(), Arg.Any<CancellationToken>())
-            .Returns((ClothingItem?)null);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Sut().Handle(new GenerateOutfitFromPromptCommand(Guid.NewGuid(), "anything"), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Handle_GenericGarmentWord_DoesNotConstrainSubType()
-    {
-        var captured = await CaptureOptionsForGarment(new RequestedGarment("pants", ClothingType.Bottom));
-
-        Assert.True(captured.GarmentConstraints.TryGetValue(ClothingType.Bottom, out var spec));
-        Assert.Null(spec!.SubType); // "pants" is generic -> type only, no sub-type hard filter
-    }
-
-    [Fact]
-    public async Task Handle_SpecificGarmentWord_ConstrainsSubType()
-    {
-        var captured = await CaptureOptionsForGarment(new RequestedGarment("shorts", ClothingType.Bottom));
-
-        Assert.True(captured.GarmentConstraints.TryGetValue(ClothingType.Bottom, out var spec));
-        Assert.Equal("shorts", spec!.SubType); // a specific sub-type is still enforced
-    }
-
-    private async Task<OutfitGenerationOptions> CaptureOptionsForGarment(RequestedGarment garment)
-    {
-        GivenParsed(new PromptIntent());
-        _occasion.ClassifyStyle(Arg.Any<string>()).Returns((string?)null);
-        _garment.Detect(Arg.Any<string>()).Returns(new[] { garment });
-        _selector.SelectAsync(Arg.Any<Guid>(), Arg.Any<PromptIntent>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<WeatherData?>(), Arg.Any<CancellationToken>())
-            .Returns(new ClothingItem { Id = Guid.NewGuid() });
-
-        OutfitGenerationOptions? captured = null;
-        _generator.GenerateAiOutfitAsync(Arg.Any<Guid>(), Arg.Any<Guid>(),
-                Arg.Do<OutfitGenerationOptions>(o => captured = o), Arg.Any<CancellationToken>())
-            .Returns(new AiGeneratedOutfitDto());
-
-        await Sut().Handle(new GenerateOutfitFromPromptCommand(Guid.NewGuid(), "prompt"), CancellationToken.None);
-
-        Assert.NotNull(captured);
-        return captured!;
     }
 }

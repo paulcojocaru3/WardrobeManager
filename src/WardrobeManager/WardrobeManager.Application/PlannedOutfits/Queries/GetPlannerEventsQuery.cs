@@ -4,6 +4,7 @@ using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Clothing.Queries;
 using WardrobeManager.Application.Outfits.Queries;
 using WardrobeManager.Application.PlannedOutfits.Commands;
+using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Queries;
 
@@ -16,31 +17,37 @@ public sealed class GetPlannerEventsQueryHandler : IRequestHandler<GetPlannerEve
     private readonly IPlannerEventRepository _plannerEventRepository;
     private readonly IWeatherService _weatherService;
     private readonly ILogger<GetPlannerEventsQueryHandler> _logger;
+    private readonly TimeProvider _clock;
 
-    public GetPlannerEventsQueryHandler(IPlannerEventRepository plannerEventRepository, IWeatherService weatherService, ILogger<GetPlannerEventsQueryHandler> logger)
+    public GetPlannerEventsQueryHandler(
+        IPlannerEventRepository plannerEventRepository,
+        IWeatherService weatherService,
+        ILogger<GetPlannerEventsQueryHandler> logger,
+        TimeProvider? clock = null)
     {
         _plannerEventRepository = plannerEventRepository;
         _weatherService = weatherService;
         _logger = logger;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<GetPlannerEventsResult> Handle(GetPlannerEventsQuery request, CancellationToken cancellationToken)
     {
         var plannerEvents = (await _plannerEventRepository.GetByUserIdAsync(request.UserId, cancellationToken)).ToList();
 
-        var now = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
 
         await PlannerEventProjection.ApplyLifecycleTransitionsAsync(plannerEvents, _plannerEventRepository, now, cancellationToken);
 
-        // Filter to return only active events
-        var activeEvents = plannerEvents.Where(p => p.Status == "Active").ToList();
+        // filter to return only active events
+        var activeEvents = plannerEvents.Where(p => p.Status == PlannerEvent.ActiveStatus).ToList();
 
         var dtos = activeEvents.Select(PlannerEventProjection.ToDto).ToList();
 
-        // Check for weather drift
+        // check for weather drift
         WeatherAlertDto? weatherAlert = null;
         
-        // Find the first active event that has upcoming days with stored temperatures
+        // find the first active event that has upcoming days with stored temperatures
         var upcomingEvent = activeEvents
             .Where(e => e.EndDate.Date >= now.Date && e.Itineraries.Any(i => i.Date.Date >= now.Date && i.StoredTemperature.HasValue))
             .OrderBy(e => e.StartDate)

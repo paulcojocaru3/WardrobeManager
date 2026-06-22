@@ -9,12 +9,16 @@ wardrobe_web/node_modules/
 wardrobe_web/dist/
 ml_api/__pycache__/
 **/*.pyc
+ml_api/fashion_my_model.h5
+ml_api/eval/
 
 # Local secrets & data - never copy into the image
 .env
 **/.env
 *.dump
 eval/
+screenshots/
+wardrobe_web/design-demos/
 
 # VCS & misc
 .git/

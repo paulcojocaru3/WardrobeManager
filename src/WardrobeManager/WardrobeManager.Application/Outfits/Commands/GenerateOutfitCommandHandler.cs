@@ -1,4 +1,3 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Clothing.Queries;
@@ -13,19 +12,17 @@ public sealed class GenerateOutfitCommandHandler(
     IClothingRepository clothingRepository,
     IOutfitRepository outfitRepository,
     IOutfitGenerator outfitGenerator,
-    IValidator<GenerateOutfitCommand> validator) : IRequestHandler<GenerateOutfitCommand, OutfitDto>
+    TimeProvider? clock = null) : IRequestHandler<GenerateOutfitCommand, OutfitDto>
 {
     public async Task<OutfitDto> Handle(GenerateOutfitCommand request, CancellationToken ct)
     {
-        await validator.ValidateAndThrowAsync(request, ct);
-
         var user = await userRepository.GetByIdAsync(request.UserId, ct);
         if (user == null)
         {
             throw new InvalidOperationException($"User with ID {request.UserId} was not found.");
         }
 
-var aiResult = await outfitGenerator.GenerateAiOutfitAsync(
+        var aiResult = await outfitGenerator.GenerateAiOutfitAsync(
             request.UserId,
             request.StartItemId,
             new OutfitGenerationOptions { Threshold = 0.5 },
@@ -33,15 +30,11 @@ var aiResult = await outfitGenerator.GenerateAiOutfitAsync(
 
         var itemsInDb = await clothingRepository.GetByIdsAsync(aiResult.SelectedItems.Select(i => i.Id), ct);
 
-        var outfit = new Outfit
-        {
-            Id = Guid.NewGuid(),
-            UserId = user.Id,
-            Name = aiResult.Name,
-            IsAiGenerated = true,
-            Items = itemsInDb,
-            CreatedAt = DateTime.UtcNow
-        };
+        var outfit = Outfit.Create(
+            user.Id,
+            aiResult.Name,
+            itemsInDb,
+            (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
 
         await outfitRepository.AddAsync(outfit, ct);
 

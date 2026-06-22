@@ -9,7 +9,7 @@ namespace WardrobeManager.Tests.Unit.Security;
 [Trait("Category", "Unit")]
 public sealed class JwtTokenServiceTests
 {
-    // Generated per run (not a hardcoded secret) so the signing key never appears as a literal.
+    // generated per run (not a hardcoded secret) so the signing key never appears as a literal.
     private static readonly string Key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
 
     private static IConfiguration Config(params (string Key, string? Value)[] overrides)

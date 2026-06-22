@@ -37,7 +37,7 @@ public sealed class GetWearStatisticsQueryHandlerTests
             WearDate = now.AddDays(-daysAgo),
         };
 
-        // Consecutive days (today-3..today) -> streak; mix of AI / custom / no-outfit sessions.
+        // consecutive days (today-3..today) -> streak; mix of AI / custom / no-outfit sessions.
         var events = new List<WearEvent>
         {
             Event(top, aiOutfit.Id, 3),

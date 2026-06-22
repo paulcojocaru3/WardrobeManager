@@ -12,6 +12,8 @@ namespace WardrobeManager.API.Controllers;
 [Authorize]
 public sealed class UsersController(IMediator mediator) : ControllerBase
 {
+    private const string AuthCookieName = "wardrobe_auth";
+
     [AllowAnonymous]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterUserCommand command, CancellationToken ct)
@@ -19,6 +21,7 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
         try
         {
             var result = await mediator.Send(command, ct);
+            SetAuthCookie(result.Token);
             return Ok(result);
         }
         catch (Exception ex)
@@ -33,7 +36,16 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
     {
         var result = await mediator.Send(query, ct);
         if (result == null) return Unauthorized("wrong credentials");
+        SetAuthCookie(result.Token);
         return Ok(result);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete(AuthCookieName, BuildCookieOptions());
+        return NoContent();
     }
 
     [HttpPut("{id:guid}")]
@@ -42,7 +54,7 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
         if (id != User.GetUserId()) return Forbid();
         try
         {
-            // Identity comes from the token, never the route/body.
+            // trust identity from the token.
             var updated = await mediator.Send(command with { UserId = User.GetUserId() }, ct);
             return Ok(updated);
         }
@@ -52,12 +64,32 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
         }
     }
 
-    public record UpdatePreferencesRequest(
-        List<string>? FavoriteColors,
-        string? PreferredCity,
-        string? ThemePreference,
-        string? OuterwearMode = null,
-        int? OuterwearTempThreshold = null);
+    public sealed class UpdatePreferencesRequest
+    {
+        public List<string>? FavoriteColors { get; init; }
+        public string? PreferredCity { get; init; }
+        public string? ThemePreference { get; init; }
+        public string? OuterwearMode { get; init; }
+        public int? OuterwearTempThreshold { get; init; }
+        public List<string>? AvoidColors { get; init; }
+        public string? VarietyLevel { get; init; }
+        public bool? BlockDuplicateUploads { get; init; }
+        public bool? PreferLightOnHotDays { get; init; }
+        public bool? UseGemmaStylistForOutfits { get; init; }
+
+        private int? _defaultReuseAfterDays;
+        public int? DefaultReuseAfterDays
+        {
+            get => _defaultReuseAfterDays;
+            init
+            {
+                _defaultReuseAfterDays = value;
+                HasDefaultReuseAfterDays = true;
+            }
+        }
+
+        public bool HasDefaultReuseAfterDays { get; private init; }
+    }
 
     [HttpPut("{id:guid}/preferences")]
     public async Task<IActionResult> UpdatePreferences(Guid id, [FromBody] UpdatePreferencesRequest request, CancellationToken ct)
@@ -65,7 +97,10 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
         if (id != User.GetUserId()) return Forbid();
         var updated = await mediator.Send(new UpdateUserPreferencesCommand(
             User.GetUserId(), request.FavoriteColors, request.PreferredCity, request.ThemePreference,
-            request.OuterwearMode, request.OuterwearTempThreshold), ct);
+            request.OuterwearMode, request.OuterwearTempThreshold,
+            request.AvoidColors, request.VarietyLevel,
+            request.BlockDuplicateUploads, request.PreferLightOnHotDays, request.UseGemmaStylistForOutfits,
+            request.DefaultReuseAfterDays, request.HasDefaultReuseAfterDays), ct);
         return Ok(updated);
     }
 
@@ -74,6 +109,24 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
     {
         if (id != User.GetUserId()) return Forbid();
         await mediator.Send(new DeleteUserCommand(User.GetUserId()), ct);
+        Response.Cookies.Delete(AuthCookieName, BuildCookieOptions());
         return NoContent();
+    }
+
+    private void SetAuthCookie(string token)
+    {
+        Response.Cookies.Append(AuthCookieName, token, BuildCookieOptions());
+    }
+
+    private CookieOptions BuildCookieOptions()
+    {
+        return new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = Request.IsHttps ? SameSiteMode.None : SameSiteMode.Lax,
+            MaxAge = TimeSpan.FromHours(24),
+            Path = "/"
+        };
     }
 }

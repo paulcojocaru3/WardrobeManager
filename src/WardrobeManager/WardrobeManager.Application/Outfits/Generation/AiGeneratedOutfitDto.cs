@@ -1,3 +1,4 @@
+using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Domain.Enums;
 
 namespace WardrobeManager.Application.Outfits.Generation;
@@ -18,15 +19,20 @@ public sealed record OutfitRecommendationDto
 
 public sealed record AiGeneratedOutfitDto
 {
-    // identifies this run so the client can attach feedback to its recommendations
     public Guid GenerationId { get; init; } = Guid.NewGuid();
 
     public string Name { get; init; } = string.Empty;
     public IReadOnlyList<SimilarItemDto> SelectedItems { get; init; } = [];
     public IReadOnlyList<OutfitRecommendationDto> RecommendationsPerType { get; init; } = [];
-    public bool IsValid { get; init; } = true; // false if any selected item fell below threshold
+    public bool IsValid { get; init; } = true;
 
-    // human-readable notes when a requested constraint (color/sub-type) couldn't be satisfied and the
-    // generator fell back to the closest available piece
     public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    public IReadOnlyList<OutfitCandidate> Candidates { get; init; } = [];
+
+    // mark direct gemma3 generation.
+    public bool GeneratedByStylist { get; init; }
+    public string? StylistHeadline { get; init; }
+    public IReadOnlyList<string> StylistHighlights { get; init; } = [];
+    public string? StylistTip { get; init; }
 }

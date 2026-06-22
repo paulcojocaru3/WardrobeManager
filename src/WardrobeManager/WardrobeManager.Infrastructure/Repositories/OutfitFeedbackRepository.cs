@@ -33,17 +33,60 @@ public sealed class OutfitFeedbackRepository : IOutfitFeedbackRepository
         await _context.SaveChangesAsync(ct);
     }
 
-    public async Task<IReadOnlyList<OutfitFeedback>> GetTrainingRowsAsync(Guid userId, CancellationToken ct = default)
+    public async Task RecordActionsForItemsAsync(
+        Guid userId, Guid generationId, IEnumerable<Guid> clothingItemIds, FeedbackAction action, CancellationToken ct = default)
+    {
+        var ids = clothingItemIds.Distinct().ToList();
+        if (ids.Count == 0) return;
+
+        var rows = await _context.OutfitFeedbacks
+            .Where(f => f.UserId == userId && f.GenerationId == generationId && ids.Contains(f.ClothingItemId))
+            .ToListAsync(ct);
+
+        if (rows.Count == 0) return;
+
+        var now = DateTime.UtcNow;
+        foreach (var row in rows)
+        {
+            row.Action = action;
+            row.ActionedAt = now;
+        }
+        await _context.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<OutfitFeedback>> GetByGenerationAsync(Guid userId, Guid generationId, CancellationToken ct = default)
     {
         return await _context.OutfitFeedbacks
             .AsNoTracking()
-            .Where(f => f.UserId == userId && f.Action != FeedbackAction.Shown)
+            .Where(f => f.UserId == userId && f.GenerationId == generationId)
             .ToListAsync(ct);
     }
 
-    public Task<int> CountActionableAsync(Guid userId, CancellationToken ct = default)
+    public async Task<IReadOnlyCollection<Guid>> GetRejectedItemIdsSinceAsync(Guid userId, DateTime since, CancellationToken ct = default)
     {
-        return _context.OutfitFeedbacks
-            .CountAsync(f => f.UserId == userId && f.Action != FeedbackAction.Shown, ct);
+        return await _context.OutfitFeedbacks
+            .AsNoTracking()
+            .Where(f => f.UserId == userId && f.Action == FeedbackAction.Rejected && f.ActionedAt >= since)
+            .Select(f => f.ClothingItemId)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyCollection<Guid>> GetRecentlyShownItemIdsAsync(
+        Guid userId, DateTime since, ClothingType? slot = null, CancellationToken ct = default)
+    {
+        var query = _context.OutfitFeedbacks
+            .AsNoTracking()
+            .Where(f => f.UserId == userId && f.CreatedAt >= since);
+
+        if (slot.HasValue)
+        {
+            query = query.Where(f => f.SlotType == slot.Value);
+        }
+
+        return await query
+            .Select(f => f.ClothingItemId)
+            .Distinct()
+            .ToListAsync(ct);
     }
 }

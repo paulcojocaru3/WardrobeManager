@@ -1,5 +1,3 @@
-using WardrobeManager.Application.Outfits.Learning;
-
 namespace WardrobeManager.Application.Abstractions;
 
 // what the ML pipeline returns for an uploaded clothing image
@@ -21,7 +19,4 @@ public interface IMlService
     Task<float[]> EmbedTextAsync(string text, CancellationToken ct = default);
     Task<IReadOnlyList<string>> PredictArticleTypesAsync(IReadOnlyList<float[]> embeddings, CancellationToken ct = default);
     Task<IReadOnlyList<string>> GetArticleTypesAsync(CancellationToken ct = default);
-
-    // returns null when there isn't enough feedback to train
-    Task<LearnedWeights?> TrainWeightsAsync(IReadOnlyList<WeightTrainingSample> samples, IReadOnlyList<string> featureNames, IReadOnlyDictionary<string, double> defaultWeights, CancellationToken ct = default);
 }

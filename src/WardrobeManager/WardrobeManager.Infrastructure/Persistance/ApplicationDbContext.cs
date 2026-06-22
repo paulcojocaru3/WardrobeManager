@@ -16,16 +16,17 @@ public class ApplicationDbContext : DbContext
     public DbSet<WearEvent> WearEvents { get; set; } = null!;
     public DbSet<PlannerEvent> PlannerEvents { get; set; } = null!;
     public DbSet<EventItinerary> EventItineraries { get; set; } = null!;
-    public DbSet<Recommendation> Recommendations { get; set; } = null!;
     public DbSet<OutfitFeedback> OutfitFeedbacks { get; set; } = null!;
-    public DbSet<UserEvaluatorWeights> UserEvaluatorWeights { get; set; } = null!;
+    public DbSet<ItemPairScore> ItemPairScores { get; set; } = null!;
+    public DbSet<UserLearningProfile> UserLearningProfiles { get; set; } = null!;
+    public DbSet<Notification> Notifications { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("vector");
         base.OnModelCreating(modelBuilder);
 
-        // User Configuration
+        // user Configuration
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -33,7 +34,7 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.Username).IsUnique();
         });
 
-        // ClothingItem Configuration
+        // clothingitem Configuration
         modelBuilder.Entity<ClothingItem>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -41,7 +42,7 @@ public class ApplicationDbContext : DbContext
                   .WithMany(u => u.ClothingItems)
                   .HasForeignKey(e => e.UserId);
 
-            // Configure Embedding vector (CLIP is 512-dim)
+            // configure Embedding vector (CLIP is 512-dim)
             entity.Property(e => e.Embedding)
                   .HasColumnType("vector(512)")
                   .HasConversion(
@@ -53,13 +54,13 @@ public class ApplicationDbContext : DbContext
                       c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                       c => c.ToArray()));
 
-            // Add HNSW index for fast vector similarity search
+            // add HNSW index for fast vector similarity search
             entity.HasIndex(e => e.Embedding)
                   .HasMethod("hnsw")
                   .HasOperators("vector_cosine_ops");
         });
 
-        // Outfit Configuration (Many-to-Many with ClothingItem)
+        // outfit Configuration (Many-to-Many with ClothingItem)
         modelBuilder.Entity<Outfit>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -72,7 +73,7 @@ public class ApplicationDbContext : DbContext
                   .UsingEntity(j => j.ToTable("OutfitItems"));
         });
 
-        // WearEvent Configuration
+        // wearevent Configuration
         modelBuilder.Entity<WearEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -91,7 +92,7 @@ public class ApplicationDbContext : DbContext
                   .OnDelete(DeleteBehavior.SetNull);
         });
 
-        // PlannerEvent Configuration
+        // plannerevent Configuration
         modelBuilder.Entity<PlannerEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -101,7 +102,7 @@ public class ApplicationDbContext : DbContext
                   .HasForeignKey(e => e.UserId);
         });
 
-        // EventItinerary Configuration
+        // eventitinerary Configuration
         modelBuilder.Entity<EventItinerary>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -117,16 +118,7 @@ public class ApplicationDbContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Recommendation Configuration
-        modelBuilder.Entity<Recommendation>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.HasOne(e => e.User)
-                  .WithMany()
-                  .HasForeignKey(e => e.UserId);
-        });
-
-        // Reusable jsonb <-> Dictionary<string,double> converter/comparer.
+        // reusable jsonb <-> Dictionary<string,double> converter/comparer.
         var dictConverter = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<Dictionary<string, double>, string>(
             v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
             v => JsonSerializer.Deserialize<Dictionary<string, double>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, double>());
@@ -136,26 +128,45 @@ public class ApplicationDbContext : DbContext
             c => c.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key.GetHashCode(), kv.Value.GetHashCode())),
             c => new Dictionary<string, double>(c));
 
-        // OutfitFeedback Configuration
+        // outfitfeedback Configuration
         modelBuilder.Entity<OutfitFeedback>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.UserId, e.GenerationId });
             entity.Property(e => e.Action).HasConversion<string>();
-            entity.Property(e => e.EvaluatorScores)
+        });
+
+        // itempairscore Configuration (one row per unordered item pair, per user)
+        modelBuilder.Entity<ItemPairScore>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.ItemAId, e.ItemBId }).IsUnique();
+            entity.HasIndex(e => e.UserId);
+        });
+
+        // userlearningprofile Configuration (one row per user)
+        modelBuilder.Entity<UserLearningProfile>(entity =>
+        {
+            entity.HasKey(e => e.UserId);
+            entity.Property(e => e.ColorScores)
+                  .HasColumnType("jsonb")
+                  .HasConversion(dictConverter)
+                  .Metadata.SetValueComparer(dictComparer);
+            entity.Property(e => e.StyleScores)
                   .HasColumnType("jsonb")
                   .HasConversion(dictConverter)
                   .Metadata.SetValueComparer(dictComparer);
         });
 
-        // UserEvaluatorWeights Configuration (one row per user)
-        modelBuilder.Entity<UserEvaluatorWeights>(entity =>
+        // notification Configuration
+        modelBuilder.Entity<Notification>(entity =>
         {
-            entity.HasKey(e => e.UserId);
-            entity.Property(e => e.Weights)
-                  .HasColumnType("jsonb")
-                  .HasConversion(dictConverter)
-                  .Metadata.SetValueComparer(dictComparer);
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId);
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt });
+            entity.HasIndex(e => new { e.UserId, e.IsRead });
         });
     }
 }

@@ -3,9 +3,9 @@ services:
     image: pgvector/pgvector:pg17
     container_name: wardrobe-postgres-dev
     environment:
-      POSTGRES_USER: wardrobe_admin
-      POSTGRES_PASSWORD: wardrobe_pass
-      POSTGRES_DB: wardrobe_db
+      POSTGRES_USER: ${POSTGRES_USER:-wardrobe_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - set it in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-wardrobe_db}
     ports:
       - "5433:5432"
     volumes:
@@ -25,6 +25,8 @@ services:
       - postgres-db
     networks:
       - default
+    environment:
+      CORS_ALLOWED_ORIGINS: "http://localhost:8080,http://localhost:5150"
     develop:
       watch:
         - action: sync
@@ -45,11 +47,12 @@ services:
     ports:
       - "8080:8080"
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres-db;Database=wardrobe_db;Username=wardrobe_admin;Password=wardrobe_pass"
+      ConnectionStrings__DefaultConnection: "Host=postgres-db;Database=${POSTGRES_DB:-wardrobe_db};Username=${POSTGRES_USER:-wardrobe_admin};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - set it in .env}"
       FastApi__BaseUrl: "http://ml-api:8000"
       Ollama__BaseUrl: "http://host.docker.internal:11434"
       WeatherApi__Key: "${WEATHER_API_KEY}"
       Jwt__Key: "${JWT_KEY:?JWT_KEY is required - set it in .env}"
+      Cors__AllowedOrigins__0: "${FRONTEND_ORIGIN:-http://localhost:5173}"
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
     extra_hosts:

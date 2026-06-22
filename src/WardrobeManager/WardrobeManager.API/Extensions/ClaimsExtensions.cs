@@ -7,7 +7,7 @@ public static class ClaimsExtensions
 {
     public static Guid GetUserId(this ClaimsPrincipal principal)
     {
-        // Try the standard claim first, then fall back to "sub".
+        // try the standard claim first, then fall back to "sub".
         var value = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(value))
         {

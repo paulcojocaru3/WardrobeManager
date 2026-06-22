@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
-using WardrobeManager.Application.Outfits.Learning;
 using WardrobeManager.Infrastructure.ExternalServices;
 
 namespace WardrobeManager.Tests.Unit.Http;
@@ -92,24 +91,5 @@ public sealed class MlServiceTests
 
         var err = Service(_ => FakeHttpMessageHandler.Status(HttpStatusCode.NotFound));
         Assert.Empty(await err.GetArticleTypesAsync());
-    }
-
-    [Fact]
-    public async Task TrainWeights_ReturnsLearnedWeights_OrNull()
-    {
-        var samples = new[] { new WeightTrainingSample(new() { ["Style"] = 0.5 }, 1) };
-        var feature = new[] { "Style" };
-        var defaults = new Dictionary<string, double> { ["Style"] = 0.3 };
-
-        var ok = Service(_ => FakeHttpMessageHandler.Json(new { weights = new Dictionary<string, double> { ["Style"] = 0.7 }, n_samples = 20 }));
-        var learned = await ok.TrainWeightsAsync(samples, feature, defaults);
-        Assert.NotNull(learned);
-        Assert.Equal(20, learned!.NSamples);
-
-        var empty = Service(_ => FakeHttpMessageHandler.Json(new { weights = new Dictionary<string, double>(), n_samples = 0 }));
-        Assert.Null(await empty.TrainWeightsAsync(samples, feature, defaults));
-
-        var err = Service(_ => FakeHttpMessageHandler.Status(HttpStatusCode.InternalServerError));
-        Assert.Null(await err.TrainWeightsAsync(samples, feature, defaults));
     }
 }

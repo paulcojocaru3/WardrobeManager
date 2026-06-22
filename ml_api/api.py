@@ -2,7 +2,7 @@ import json
 import numpy as np
 from io import BytesIO
 from PIL import Image
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -11,15 +11,23 @@ import base64
 import torch
 import torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel, pipeline as hf_pipeline
-from sklearn.linear_model import LogisticRegression
 import joblib
 import os
 
 app = FastAPI(title="Fashion AI API")
 
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+Image.MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", "20000000"))
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5150,http://localhost:8080").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -134,7 +142,15 @@ with torch.no_grad():
 
 @app.post("/process-clothing")
 async def process_clothing(file: UploadFile = File(...)):
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="Only JPEG, PNG, and WebP images are supported.")
+
     img_bytes = await file.read()
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail="A non-empty image file is required.")
+    if len(img_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image file is too large.")
+
     original_img = Image.open(BytesIO(img_bytes)).convert("RGB")
 
     # 1. Remove Background
@@ -214,50 +230,6 @@ async def predict_article_types(request: PredictArticleTypesRequest):
 async def article_types():
     # The full article-type vocabulary the model can output (source of truth for the UI dropdown).
     return {"types": [str(c) for c in article_type_model.classes_]}
-
-# ── Per-user evaluator weight learning ──────────────────────────────────────
-class TrainSample(BaseModel):
-    features: dict        # evaluator name -> normalized score (subset; missing = abstained)
-    label: int            # 1 = positive (accepted/worn/favorited), 0 = rejected
-
-class TrainWeightsRequest(BaseModel):
-    feature_names: list
-    default_weights: dict
-    samples: list[TrainSample]
-
-@app.post("/train/weights")
-async def train_weights(req: TrainWeightsRequest):
-    names = req.feature_names
-    defaults = req.default_weights
-    n = len(req.samples)
-
-    # Impute abstained features to a neutral 0.5 so every row is the same length.
-    X = np.array([[s.features.get(k, 0.5) for k in names] for s in req.samples], dtype=float)
-    y = np.array([s.label for s in req.samples], dtype=int)
-
-    # Need both classes to fit; otherwise hand back the defaults unchanged.
-    if n == 0 or len(set(y.tolist())) < 2:
-        return {"weights": {k: defaults.get(k, 0.0) for k in names}, "n_samples": n}
-
-    model = LogisticRegression(C=1.0, max_iter=1000)
-    model.fit(X, y)
-    coefs = model.coef_[0]
-
-    # Keep only positive importances and rescale to the defaults' total mass (interpretable).
-    pos = np.clip(coefs, 0.0, None)
-    default_total = sum(defaults.get(k, 0.0) for k in names)
-    if pos.sum() <= 1e-9:
-        learned = {k: defaults.get(k, 0.0) for k in names}
-    else:
-        scale = default_total / pos.sum()
-        learned = {k: float(pos[i] * scale) for i, k in enumerate(names)}
-
-    # Shrink-to-prior: trust the learned weights more as samples accumulate (k=20).
-    k = 20.0
-    alpha = n / (n + k)
-    blended = {key: alpha * learned[key] + (1.0 - alpha) * defaults.get(key, 0.0) for key in names}
-
-    return {"weights": blended, "n_samples": n}
 
 @app.get("/health")
 async def health():

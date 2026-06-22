@@ -1,168 +1,206 @@
-import React from 'react';
 import Modal from '../Modal';
 import Button from '../Button';
 import { CLOTHING_TYPES } from '../../constants/wardrobe';
 
-// Minimum match score for an alternative to be shown. Tune here (0.5 = acceptable, 0.7 = strong only).
-const MIN_ALTERNATIVE_SCORE = 0.7;
+const MIN_ALTERNATIVE_SCORE = 0.15;
 
-// ClothingType serializes as its enum index; map it to a readable slot label.
-const slotLabel = (type) =>
-  (typeof type === 'number' ? CLOTHING_TYPES[type] : type) || 'ITEM';
-
-const buildIntentChips = (intent) => {
-  if (!intent) return [];
-  const chips = [];
-  if (intent.style) chips.push(intent.style);
-  if (intent.occasion) chips.push(intent.occasion);
-  if (intent.city) chips.push(intent.city);
-  // outfit-level colors (garment-bound colors live on garmentSpecs instead)
-  (intent.desiredColors || []).forEach(c => chips.push(c));
-  (intent.avoidColors || []).forEach(c => chips.push(`no ${c}`));
-  // per-garment colors, e.g. "TOP: no black, no white", "BOTTOM: black"
-  (intent.garmentSpecs || []).forEach(g => {
-    const parts = [
-      ...(g.desiredColors || []),
-      ...(g.avoidColors || []).map(c => `no ${c}`),
-    ];
-    if (parts.length > 0) chips.push(`${slotLabel(g.type)}: ${parts.join(', ')}`);
-  });
-  if (intent.anchorDescription) chips.push(intent.anchorDescription);
-  return chips;
-};
-
-// Per type: the currently-selected item for that slot plus its swappable alternatives
-// (everything but the current pick, over the threshold, top 3). Derived from selectedItems,
-// so after a swap the dropped item reappears as an alternative (swap-back works for free).
 const buildSlots = (aiData) =>
   (aiData.recommendationsPerType || [])
-    .map(rec => {
-      const selected = aiData.selectedItems.find(
-        si => (rec.topCandidates || []).some(tc => tc.id === si.id));
+    .map((rec) => {
+      const selected = aiData.selectedItems.find((si) =>
+        (rec.topCandidates || []).some((tc) => tc.id === si.id));
       const alternatives = (rec.topCandidates || [])
-        .filter(c => !selected || c.id !== selected.id)
-        .filter(c => c.similarityScore > MIN_ALTERNATIVE_SCORE)
+        .filter((candidate) => !selected || candidate.id !== selected.id)
+        .filter((candidate) => candidate.similarityScore > MIN_ALTERNATIVE_SCORE)
         .slice(0, 3);
-      return { type: rec.type, label: CLOTHING_TYPES[rec.type] ?? 'ITEM', selectedId: selected?.id, alternatives };
+
+      return {
+        type: rec.type,
+        label: CLOTHING_TYPES[rec.type] ?? 'Item',
+        selectedId: selected?.id,
+        alternatives,
+      };
     })
-    .filter(slot => slot.alternatives.length > 0);
+    .filter((slot) => slot.alternatives.length > 0);
 
-const AiSuggestionModal = ({ isOpen, onClose, aiData, setAiData, intent, onSaveAiOutfit, onRegenerate, loading }) => {
-  const intentChips = buildIntentChips(intent);
+const AiSuggestionModal = ({
+  isOpen,
+  onClose,
+  aiData,
+  setAiData,
+  stylingNotes,
+  notesLoading,
+  insight,
+  onSaveAiOutfit,
+  onRegenerate,
+  loading,
+}) => {
   const slots = aiData ? buildSlots(aiData) : [];
+  const hasInsight = !!insight && (insight.headline || (insight.items || []).length > 0 || insight.weatherAdvice);
+  const stylistHighlights = aiData?.stylistHighlights || aiData?.StylistHighlights || [];
+  const stylistHeadline = aiData?.stylistHeadline || aiData?.StylistHeadline;
+  const stylistTip = aiData?.stylistTip || aiData?.StylistTip;
+  const generatedByStylist = aiData?.generatedByStylist || aiData?.GeneratedByStylist;
+  const hasStylistPanel = generatedByStylist && (stylistHeadline || stylistTip || stylistHighlights.length > 0);
 
-  // Ids of selected items that occupy a swappable slot (the seed is excluded — it has no slot).
-  const slotSelectedIds = new Set(slots.map(s => s.selectedId).filter(Boolean));
+  const slotSelectedIds = new Set(slots.map((slot) => slot.selectedId).filter(Boolean));
   const scoreById = new Map(
     (aiData?.recommendationsPerType || [])
-      .flatMap(rec => rec.topCandidates || [])
-      .map(c => [c.id, c.similarityScore]));
+      .flatMap((rec) => rec.topCandidates || [])
+      .map((candidate) => [candidate.id, candidate.similarityScore]));
 
-  // Replace the item currently filling a slot with the chosen alternative.
+  const scoreLabel = (value) => value == null ? null : `${Math.round(value * 100)}%`;
+  const typeLabel = (item) => {
+    const type = item?.type;
+    if (typeof type === 'number') return CLOTHING_TYPES[type] || 'Item';
+    return type || 'Item';
+  };
+
   const swapItem = (slot, candidate) => {
     if (!slot.selectedId) return;
+
     setAiData({
       ...aiData,
-      selectedItems: aiData.selectedItems.map(si => si.id === slot.selectedId ? candidate : si),
+      selectedItems: aiData.selectedItems.map((item) =>
+        item.id === slot.selectedId ? candidate : item),
     });
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="AI OUTFIT SUGGESTION" size="large">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Outfit review"
+      size="large"
+      contentClassName="ai-outfit-modal-shell"
+    >
       {aiData && (
-        <div style={{ maxHeight: '80vh', overflowY: 'auto', padding: '10px' }}>
-          <input
-            className="name-input"
-            value={aiData.name}
-            onChange={e => setAiData({...aiData, name: e.target.value})}
-            style={{ width: '100%', fontSize: '24px', marginBottom: '20px' }}
-          />
-          {intentChips.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '11px', letterSpacing: '1px', opacity: 0.6, marginBottom: '8px' }}>UNDERSTOOD FROM YOUR PROMPT</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {intentChips.map((chip, i) => (
-                  <span key={i} style={{
-                    padding: '5px 12px',
-                    background: 'var(--card-bg)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: '999px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    textTransform: 'capitalize'
-                  }}>{chip}</span>
-                ))}
+        <div className="ai-outfit-review">
+          <header className="ai-review-header">
+            <div>
+              <span className="ai-review-kicker">Generated look</span>
+              <input
+                className="ai-review-name-input"
+                value={aiData.name}
+                onChange={(event) => setAiData({ ...aiData, name: event.target.value })}
+                aria-label="Outfit name"
+              />
+            </div>
+            <div className="ai-review-count">
+              <strong>{aiData.selectedItems.length}</strong>
+              <span>items</span>
+            </div>
+          </header>
+
+          <div className="ai-review-grid">
+            <section className="ai-look-panel">
+              <div className="ai-look-canvas">
+                {aiData.selectedItems.map((item, index) => {
+                  const score = slotSelectedIds.has(item.id) ? scoreById.get(item.id) : null;
+
+                  return (
+                    <div key={item.id} className={`ai-look-item${index === 0 ? ' is-main' : ''}`}>
+                      <img src={item.processedImageUrl} alt={item.name || typeLabel(item)} />
+                      <div className="ai-look-item-meta">
+                        <span>{typeLabel(item)}</span>
+                        {score != null && <strong>{scoreLabel(score)}</strong>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          )}
-          {(aiData.warnings || []).length > 0 && (
-            <div style={{
-              marginBottom: '20px',
-              padding: '12px 14px',
-              background: 'rgba(220, 160, 0, 0.10)',
-              border: '1px solid rgba(220, 160, 0, 0.45)',
-              borderRadius: '10px'
-            }}>
-              <div style={{ fontSize: '11px', letterSpacing: '1px', opacity: 0.7, marginBottom: '6px' }}>⚠ COULDN'T FULLY MATCH YOUR REQUEST</div>
-              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', lineHeight: 1.5 }}>
-                {aiData.warnings.map((w, i) => <li key={i}>{w}</li>)}
-              </ul>
-            </div>
-          )}
-          <div className="clothes-grid">
-            {aiData.selectedItems.map(item => {
-              const score = slotSelectedIds.has(item.id) ? scoreById.get(item.id) : null;
-              return (
-                <div key={item.id} className="item-card" style={{ position: 'relative' }}>
-                  <img src={item.processedImageUrl} alt="" />
-                  {score != null && (
-                    <span style={{
-                      position: 'absolute', top: 6, right: 6,
-                      background: 'var(--card-bg)', border: '1px solid var(--border-subtle)',
-                      borderRadius: '999px', padding: '2px 8px', fontSize: '11px', fontWeight: 700
-                    }}>{Math.round(score * 100)}%</span>
+            </section>
+
+            <aside className="ai-notes-rail">
+              {hasInsight ? (
+                <section className="ai-note-card ai-note-card-main">
+                  <span className="ai-review-kicker">Style notes</span>
+                  {insight.headline && <h4>{insight.headline}</h4>}
+                  {insight.weatherAdvice && <p className="ai-weather-note">{insight.weatherAdvice}</p>}
+                  {(insight.items || []).length > 0 && (
+                    <div className="ai-item-notes">
+                      {insight.items.map((item, index) => (
+                        <div key={index} className="ai-item-note">
+                          <span>{item.slot || 'item'}</span>
+                          <p>{item.note}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </div>
-              );
-            })}
+                </section>
+              ) : (notesLoading || (stylingNotes || []).length > 0) && (
+                <section className="ai-note-card">
+                  <span className="ai-review-kicker">Style notes</span>
+                  {notesLoading ? (
+                    <p className="ai-muted-copy">Composing notes...</p>
+                  ) : (
+                    <div className="ai-simple-notes">
+                      {stylingNotes.map((note, index) => <p key={index}>{note}</p>)}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {hasStylistPanel && (
+                <section className="ai-note-card">
+                  <span className="ai-review-kicker">Gemma3 final pick</span>
+                  {stylistHeadline && <h4>{stylistHeadline}</h4>}
+                  {stylistHighlights.length > 0 && (
+                    <div className="ai-simple-notes">
+                      {stylistHighlights.map((highlight, index) => <p key={index}>{highlight}</p>)}
+                    </div>
+                  )}
+                  {stylistTip && <p className="ai-weather-note">{stylistTip}</p>}
+                </section>
+              )}
+
+              {(aiData.warnings || []).length > 0 && (
+                <section className="ai-note-card ai-warning-card">
+                  <span className="ai-review-kicker">Constraints relaxed</span>
+                  <div className="ai-simple-notes">
+                    {aiData.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+                  </div>
+                </section>
+              )}
+            </aside>
           </div>
 
           {slots.length > 0 && (
-            <div style={{ marginTop: '24px' }}>
-              <div style={{ fontSize: '11px', letterSpacing: '1px', opacity: 0.6, marginBottom: '12px' }}>TAP AN ALTERNATIVE TO SWAP</div>
-              {slots.map(slot => (
-                <div key={slot.label} style={{ marginBottom: '16px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>{slot.label}</div>
-                  <div className="clothes-grid">
-                    {slot.alternatives.map(c => (
-                      <div
-                        key={c.id}
-                        className="item-card"
-                        style={{ position: 'relative', cursor: 'pointer' }}
-                        onClick={() => swapItem(slot, c)}
-                        title="Tap to swap into the outfit"
-                      >
-                        <img src={c.processedImageUrl} alt="" />
-                        <span style={{
-                          position: 'absolute', top: 6, right: 6,
-                          background: 'var(--card-bg)', border: '1px solid var(--border-subtle)',
-                          borderRadius: '999px', padding: '2px 8px', fontSize: '11px', fontWeight: 700
-                        }}>{Math.round(c.similarityScore * 100)}%</span>
-                      </div>
-                    ))}
+            <section className="ai-swap-section">
+              <div className="ai-swap-header">
+                <span className="ai-review-kicker">Alternatives</span>
+                <p>Tap an item to replace the current pick in that slot.</p>
+              </div>
+              <div className="ai-swap-groups">
+                {slots.map((slot) => (
+                  <div key={slot.label} className="ai-swap-group">
+                    <div className="ai-swap-slot">{slot.label}</div>
+                    <div className="ai-swap-list">
+                      {slot.alternatives.map((candidate) => (
+                        <button
+                          key={candidate.id}
+                          className="ai-swap-card"
+                          onClick={() => swapItem(slot, candidate)}
+                          title="Swap into the outfit"
+                        >
+                          <img src={candidate.processedImageUrl} alt={candidate.name || slot.label} />
+                          <span>{scoreLabel(candidate.similarityScore)}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </section>
           )}
 
-          <div className="modal-actions" style={{ marginTop: '20px' }}>
-            <Button label="CONFIRM & SAVE" onClick={onSaveAiOutfit} loading={loading} />
+          <footer className="ai-review-actions">
+            <Button label="Confirm & save" onClick={onSaveAiOutfit} loading={loading} />
             {onRegenerate && (
-              <Button label="GENERATE ANOTHER" variant="secondary" onClick={onRegenerate} loading={loading} />
+              <Button label="Generate another" variant="secondary" onClick={onRegenerate} loading={loading} />
             )}
-            <Button label="DISCARD" variant="secondary" onClick={onClose} />
-          </div>
+            <Button label="Discard" variant="secondary" onClick={onClose} />
+          </footer>
         </div>
       )}
     </Modal>

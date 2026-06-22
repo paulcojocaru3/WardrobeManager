@@ -28,7 +28,7 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
 
     public async Task<ClothingItem?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        // AsSplitQuery: two collection Includes would otherwise produce an Outfits×WearEvents Cartesian product.
+        // assplitquery: two collection Includes would otherwise produce an Outfits×WearEvents Cartesian product.
         return await context.ClothingItems
             .AsSplitQuery()
             .Include(i => i.Outfits)
@@ -43,9 +43,26 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
             .ToListAsync(ct);
     }
 
+    public async Task<ClothingItem?> GetByIdForUserAsync(Guid id, Guid userId, CancellationToken ct = default)
+    {
+        return await context.ClothingItems
+            .AsSplitQuery()
+            .Include(i => i.Outfits)
+            .Include(i => i.WearEvents)
+            .FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId, ct);
+    }
+
+    public async Task<List<ClothingItem>> GetByIdsForUserAsync(IEnumerable<Guid> ids, Guid userId, CancellationToken ct = default)
+    {
+        var idList = ids.Distinct().ToList();
+        return await context.ClothingItems
+            .Where(i => i.UserId == userId && idList.Contains(i.Id))
+            .ToListAsync(ct);
+    }
+
     public async Task<List<ClothingItem>> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
     {
-        // Read-only listing — no change tracking needed.
+        // read-only listing — no change tracking needed.
         return await context.ClothingItems
             .AsNoTracking()
             .Where(i => i.UserId == userId)
@@ -57,7 +74,7 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
     {
         var pgVector = new Pgvector.Vector(vector);
 
-        // Read-only candidate scoring — no change tracking on this hot path.
+        // read-only candidate scoring — no change tracking on this hot path.
         var query = context.ClothingItems
             .AsNoTracking()
             .Where(i => i.UserId == userId && i.Embedding != null);
@@ -67,13 +84,13 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
             query = query.Where(i => i.Type == type.Value);
         }
 
-        // Gender hard filter: only same-gender, Unisex, or unspecified items.
+        // gender hard filter: only same-gender, Unisex, or unspecified items.
         if (!string.IsNullOrEmpty(gender))
         {
             query = query.Where(i => i.Gender == null || i.Gender == gender || i.Gender == "Unisex");
         }
 
-        // Order directly by distance to ensure HNSW index usage
+        // order directly by distance to ensure HNSW index usage
         var results = await query
             .OrderBy(i => EF.Property<Pgvector.Vector>(i, "Embedding").CosineDistance(pgVector))
             .Take(limit)
@@ -103,6 +120,42 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
             .ToDictionaryAsync(x => x.ItemId, x => x.LastWorn, ct);
     }
 
+    public async Task<Dictionary<Guid, int>> GetWearCountsAsync(Guid userId, CancellationToken ct = default)
+    {
+        return await context.WearEvents
+            .AsNoTracking()
+            .Where(w => w.UserId == userId)
+            .GroupBy(w => w.ClothingItemId)
+            .Select(g => new { ItemId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.ItemId, x => x.Count, ct);
+    }
+
+    public async Task<List<ClothingItem>> GetLeastWornCandidatesAsync(Guid userId, string? style, int limit, CancellationToken ct = default)
+    {
+        var query = context.ClothingItems
+            .AsNoTracking()
+            .Where(i => i.UserId == userId && i.Embedding != null);
+
+        if (!string.IsNullOrWhiteSpace(style))
+        {
+            query = query.Where(i => i.Usage != null && EF.Functions.ILike(i.Usage, $"%{style}%"));
+        }
+
+        // correlated wear-count/last-worn per item -> never-worn (count 0) sort first, then oldest.
+        return await query
+            .Select(i => new
+            {
+                Item = i,
+                Count = context.WearEvents.Count(w => w.ClothingItemId == i.Id),
+                Last = context.WearEvents.Where(w => w.ClothingItemId == i.Id).Max(w => (DateTime?)w.WearDate)
+            })
+            .OrderBy(x => x.Count)
+            .ThenBy(x => x.Last)
+            .Take(limit)
+            .Select(x => x.Item)
+            .ToListAsync(ct);
+    }
+
     public async Task<List<ClothingItem>> GetMissingSubTypeWithEmbeddingAsync(Guid userId, CancellationToken ct = default)
     {
         return await context.ClothingItems
@@ -114,10 +167,5 @@ public sealed class ClothingRepository(ApplicationDbContext context) : IClothing
     {
         context.ClothingItems.UpdateRange(items);
         await context.SaveChangesAsync(ct);
-    }
-
-    public IQueryable<ClothingItem> Query()
-    {
-        return context.ClothingItems;
     }
 }

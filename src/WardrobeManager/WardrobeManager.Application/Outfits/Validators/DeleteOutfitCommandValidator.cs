@@ -7,6 +7,7 @@ public sealed class DeleteOutfitCommandValidator : AbstractValidator<DeleteOutfi
 {
     public DeleteOutfitCommandValidator()
     {
+        RuleFor(x => x.UserId).NotEmpty();
         RuleFor(x => x.Id).NotEmpty();
     }
 }

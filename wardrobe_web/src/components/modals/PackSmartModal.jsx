@@ -1,4 +1,3 @@
-import React from 'react';
 import Modal from '../Modal';
 
 const PackSmartModal = ({ isOpen, onClose, packSmartData, packedItems, setPackedItems }) => {

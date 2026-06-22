@@ -1,6 +1,7 @@
 # Secrets / local env
 .env
 !.env.example
+kaggle.json
 
 # Build artifacts
 **/bin/
@@ -12,12 +13,14 @@ __pycache__/
 
 # Local logs
 api_log.txt
+*.log
 
 # Database backups
 *.dump
 
 # Large ML training data (kept local, not in repo)
 ml_api/styles.csv
+ml_api/fashion_my_model.h5
 
 # IDE / tooling
 .vs/
@@ -28,3 +31,7 @@ ml_api/styles.csv
 **/TestResults/
 .sonarqube/
 .sonar/
+
+# Operating-system files
+.DS_Store
+Thumbs.db

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import PackSmartModal from '../components/modals/PackSmartModal';
@@ -19,14 +19,16 @@ import CitySelectionModal from '../components/modals/CitySelectionModal';
 import OutfitEditingModal from '../components/OutfitEditingModal';
 import StatsSection from '../components/StatsSection';
 import SettingsSection from '../components/SettingsSection';
-import WeatherAlertNotice from '../components/WeatherAlertNotice';
+import NotificationBell from '../components/NotificationBell';
 import { authApi, clothingApi, geoApi, outfitsApi, plannerEventsApi, statsApi } from '../services/wardrobeApi';
 import { COLORS, CLOTHING_TYPES, SEASONS, USAGES, EVENT_MOMENTS } from '../constants/wardrobe';
 import { getErrorMessage } from '../utils/errors';
 import { toCsv, toTypeIndex } from '../utils/wardrobeTransforms';
 import { useTheme } from '../contexts/ThemeContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const OOTD_CACHE_VERSION = 'v3';
 
 const toDayStart = (value) => {
   const date = new Date(value);
@@ -58,119 +60,6 @@ const getDayOffset = (eventStartDate, targetDate) => {
   return Math.max(0, Math.round((target - start) / DAY_IN_MS));
 };
 
-// Occasion chips: each label maps to a keyword the backend OccasionClassifier
-// recognizes deterministically. Selecting one drives the style; it does NOT write
-// into the textarea (which is kept for free-text details only).
-const OCCASION_CHIPS = [
-  { label: 'Office',    kw: 'office' },
-  { label: 'Meeting',   kw: 'business meeting' },
-  { label: 'Interview', kw: 'job interview' },
-  { label: 'Dinner',    kw: 'dinner' },
-  { label: 'Date',      kw: 'dinner date' },
-  { label: 'Party',     kw: 'party' },
-  { label: 'Club',      kw: 'club' },
-  { label: 'Birthday',  kw: 'birthday' },
-  { label: 'Gym',       kw: 'gym workout' },
-  { label: 'Running',   kw: 'running' },
-  { label: 'Hiking',    kw: 'hiking' },
-  { label: 'Wedding',   kw: 'wedding' },
-  { label: 'Ceremony',  kw: 'ceremony' },
-  { label: 'Travel',    kw: 'travel' },
-  { label: 'Beach',     kw: 'beach' },
-  { label: 'Coffee',    kw: 'coffee with friends' },
-  { label: 'Walk',      kw: 'walk in the park' },
-  { label: 'Casual',    kw: 'everyday' },
-];
-
-const RECOGNIZERS = [
-  { category: 'occasion', keywords: [
-    'office', 'work', 'meeting', 'interview', 'date', 'dinner', 'party', 'gym', 'sport', 'workout',
-    'travel', 'flight', 'airport', 'beach', 'wedding', 'brunch', 'errands', 'casual friday',
-    'park', 'walk', 'stroll', 'plimbare', 'hiking', 'hike', 'nature', 'outdoor', 'outdoors',
-    'shopping', 'picnic', 'concert', 'festival', 'club', 'night out', 'bar', 'birthday',
-    'conference', 'networking', 'lunch', 'coffee', 'road trip', 'sightseeing', 'museum',
-  ]},
-  { category: 'style', keywords: [
-    'formal', 'smart casual', 'casual', 'elegant', 'minimal', 'classic', 'trendy', 'bold',
-    'cozy', 'relaxed', 'polished', 'chic', 'streetwear', 'sporty', 'edgy', 'preppy',
-    'comfortable', 'professional', 'business', 'artsy', 'urban', 'boho', 'feminine', 'sharp',
-  ]},
-  { category: 'weather', keywords: [
-    'warm', 'hot', 'cold', 'rain', 'rainy', 'sunny', 'winter', 'summer', 'spring', 'autumn',
-    'snow', 'windy', 'layered', 'light fabric', 'heavy', 'freezing', 'mild', 'breezy', 'cloudy',
-  ]},
-  { category: 'type', keywords: [
-    'dress', 'jeans', 'shirt', 'suit', 'jacket', 'coat', 'sneakers', 'heels', 'boots',
-    'trousers', 'skirt', 'blouse', 'sweater', 't-shirt', 'pants', 'shorts', 'hoodie',
-    'cardigan', 'blazer', 'loafers', 'sandals', 'scarf', 'hat', 'cap', 'vest',
-  ]},
-];
-
-// Maps prompt keywords → backend style values (USAGES)
-const STYLE_MAP = [
-  { target: 'Formal',       keywords: [
-    'formal', 'interview', 'business', 'professional', 'conference', 'ceremony',
-    'wedding', 'black tie', 'suit and tie', 'gala', 'nunta', 'cununie', 'botez',
-    'interviu', 'ceremonie', 'eveniment oficial', 'banchet',
-  ]},
-  { target: 'Smart Casual', keywords: [
-    'smart casual', 'office', 'work', 'dinner', 'date', 'restaurant', 'polished',
-    'elegant', 'smart', 'business casual', 'meeting', 'networking', 'lunch',
-    'birou', 'serviciu', 'intalnire', 'întâlnire', 'cina', 'cină',
-  ]},
-  { target: 'Party',        keywords: [
-    'party', 'club', 'festive', 'celebration', 'night out', 'cocktail', 'birthday',
-    'disco', 'bar', 'concert', 'festival',
-    'petrecere', 'aniversare', 'ziua de nastere', 'zi de naștere', 'iesire in club',
-  ]},
-  { target: 'Sports',       keywords: [
-    'sport', 'gym', 'workout', 'fitness', 'running', 'hiking', 'hike', 'training',
-    'athletic', 'outdoor', 'active', 'jogging', 'cycling', 'tennis', 'yoga', 'sporty',
-    'sala', 'sală', 'alergat', 'antrenament', 'drumetie', 'drumeție', 'munte',
-  ]},
-  { target: 'Travel',       keywords: [
-    'travel', 'flight', 'airport', 'trip', 'journey', 'vacation', 'holiday',
-    'road trip', 'sightseeing', 'backpacking',
-    'calatorie', 'călătorie', 'voiaj', 'excursie', 'avion', 'aeroport', 'vacanta', 'vacanță',
-  ]},
-  { target: 'Casual',       keywords: [
-    'casual', 'relaxed', 'everyday', 'errands', 'weekend', 'park', 'coffee', 'brunch',
-    'stroll', 'walk', 'shopping', 'comfy', 'comfortable', 'chill', 'friends', 'picnic', 'museum', 'nature',
-    'plimbare', 'relaxat', 'zilnic', 'parc', 'cafea', 'prieteni', 'cumparaturi', 'cumpărături',
-  ]},
-];
-
-const KNOWN_CITIES = [
-  // Romania
-  'bucharest', 'cluj', 'cluj-napoca', 'timisoara', 'iasi', 'constanta', 'brasov', 'sibiu',
-  'craiova', 'galati', 'ploiesti', 'oradea', 'braila', 'pitesti', 'arad', 'targu mures',
-  // Europe
-  'london', 'paris', 'berlin', 'rome', 'madrid', 'amsterdam', 'vienna', 'prague', 'budapest',
-  'warsaw', 'athens', 'lisbon', 'barcelona', 'milan', 'brussels', 'zurich', 'geneva',
-  'stockholm', 'oslo', 'copenhagen', 'helsinki', 'dublin', 'edinburgh', 'istanbul',
-  'porto', 'seville', 'florence', 'venice', 'munich', 'hamburg', 'cologne', 'lyon',
-  // World
-  'dubai', 'abu dhabi', 'new york', 'los angeles', 'chicago', 'toronto', 'montreal',
-  'sydney', 'melbourne', 'singapore', 'tokyo', 'bangkok', 'seoul', 'beijing', 'shanghai',
-  'mumbai', 'delhi', 'miami', 'san francisco', 'boston', 'seattle', 'cape town',
-];
-
-const parsePrompt = (prompt) => {
-  const lower = prompt.toLowerCase();
-  let style = null;
-  for (const { target, keywords } of STYLE_MAP) {
-    if (keywords.some(kw => lower.includes(kw))) { style = target; break; }
-  }
-  let detectedCity = null;
-  for (const c of KNOWN_CITIES) {
-    if (lower.includes(c)) {
-      detectedCity = c.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
-      break;
-    }
-  }
-  return { style, city: detectedCity };
-};
-
 const IC = {
   sparkles: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7Z"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9Z"/><path d="M5 16l.6 1.4L7 18l-1.4.6L5 20l-.6-1.4L3 18l1.4-.6Z"/></svg>,
   hanger:   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 7a2 2 0 1 1 2-2"/><path d="M12 7v2.5L3 16h18l-9-6.5"/></svg>,
@@ -186,6 +75,7 @@ const IC = {
 
 const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const { isDarkMode, toggleTheme } = useTheme();
+  const { pushToast } = useNotifications();
   const [genericForecast, setGenericForecast] = useState([]);
   const [clothes, setClothes] = useState([]);
   const [outfits, setOutfits] = useState([]);
@@ -194,8 +84,6 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const [wardrobeSearch, setWardrobeSearch] = useState('');
   const [wardrobeTypeFilter, setWardrobeTypeFilter] = useState('ALL');
   const [wardrobeTagFilter, setWardrobeTagFilter] = useState(null);
-  const [generatePrompt, setGeneratePrompt] = useState('');
-  const [selectedOccasion, setSelectedOccasion] = useState(null);
   const [plannerEvents, setPlannerEvents] = useState([]);
   const [usageRate, setUsageRate] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -226,10 +114,11 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
   const [cityModal, setCityModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [weatherInfo, setWeatherInfo] = useState(null);
-  const [weatherAlert, setWeatherAlert] = useState(null);
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [styleSelectionModal, setStyleSelectionModal] = useState(false);
   const [generationContext, setGenerationContext] = useState(null);
+  // track rediscover generation state.
+  const [preferUnused, setPreferUnused] = useState(false);
 
   const [packSmartModal, setPackSmartModal] = useState(false);
   const [packSmartData, setPackSmartData] = useState(null);
@@ -258,28 +147,6 @@ const DashboardPage = ({ user, onLogout, onUserUpdate }) => {
     const event = plannerEvents.find(e => e.id === planData.plannerEventId);
     return event ? getEventDays(event) : [];
   }, [planData.plannerEventId, plannerEvents, getEventDays]);
-
-  const todaysEvents = useMemo(() => {
-    const today = toDayStart(new Date());
-
-    return plannerEvents
-      .filter((event) => today >= toDayStart(event.startDate) && today <= toDayEnd(event.endDate))
-      .map((event) => ({
-        ...event,
-        todayItinerary: findItineraryForDate(event, today)
-      }));
-  }, [plannerEvents]);
-
-  const todaysEventSummary = useMemo(() => {
-    const plannedCount = todaysEvents.filter((event) => event.todayItinerary?.outfitId || event.todayItinerary?.outfit).length;
-    const totalEvents = todaysEvents.length;
-
-    return {
-      totalEvents,
-      plannedCount,
-      missingCount: Math.max(totalEvents - plannedCount, 0)
-    };
-  }, [todaysEvents]);
 
   const upcomingWeekDays = useMemo(() => {
     const today = toDayStart(new Date());
@@ -365,9 +232,9 @@ const [editItineraryData, setEditItineraryData] = useState({
   });
 
   const [createEventModal, setCreateEventModal] = useState(false);
-  const [createEventData, setCreateEventData] = useState({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
+  const [createEventData, setCreateEventData] = useState({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [], reuseAfterDays: 3 });
   const [editEventModal, setEditEventModal] = useState(false);
-  const [editEventData, setEditEventData] = useState({ id: '', name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
+  const [editEventData, setEditEventData] = useState({ id: '', name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [], reuseAfterDays: null });
   const [eventLocationSearch, setEventLocationSearch] = useState('');
   const [eventLocationSuggestions, setEventLocationSuggestions] = useState([]);
 
@@ -376,10 +243,20 @@ const [editItineraryData, setEditItineraryData] = useState({
 
   const [aiModal, setAiModal] = useState(false);
   const [aiData, setAiData] = useState(null);
-  const [aiIntent, setAiIntent] = useState(null);
-  // Prompt + already-shown seed ids, so "Generate another" can exclude past tops and pick a new one.
-  const [aiPromptText, setAiPromptText] = useState('');
-  const [aiExcludedSeedIds, setAiExcludedSeedIds] = useState([]);
+  // store generated outfit notes.
+  const [aiStylingNotes, setAiStylingNotes] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [aiInsight, setAiInsight] = useState(null);
+
+  // cache the daily outfit state.
+  const [ootd, setOotd] = useState(null);
+  const [ootdLoading, setOotdLoading] = useState(false);
+  const [ootdOccasion] = useState('casual');
+  // store daily outfit insight.
+  const [ootdInsight, setOotdInsight] = useState(null);
+  const [ootdInsightLoading, setOotdInsightLoading] = useState(false);
+  // surface forgotten items for rediscover.
+  const [forgottenItems, setForgottenItems] = useState([]);
   
   // Custom Outfit State
   const [customOutfitModal, setCustomOutfitModal] = useState(false);
@@ -453,6 +330,10 @@ const [editItineraryData, setEditItineraryData] = useState({
   const userDisplayName = user?.username || user?.Username || user?.email || user?.Email || 'wardrobe user';
   const userEmail = user?.email || user?.Email || 'no email';
   const userCreatedAt = user?.createdAt || user?.CreatedAt;
+  const useGemmaStylistForOutfits = user?.useGemmaStylistForOutfits ?? user?.UseGemmaStylistForOutfits ?? false;
+  const defaultReuseAfterDays = user?.defaultReuseAfterDays !== undefined
+    ? user.defaultReuseAfterDays
+    : (user?.DefaultReuseAfterDays !== undefined ? user.DefaultReuseAfterDays : 3);
   const memberSince = userCreatedAt ? new Date(userCreatedAt).toLocaleDateString() : 'recently';
   const userInitials = useMemo(
     () => userDisplayName
@@ -464,15 +345,8 @@ const [editItineraryData, setEditItineraryData] = useState({
     [userDisplayName]
   );
 
-  // Time-of-day greeting + long date for the editorial hero eyebrow.
-  const greetingLine = (() => {
-    const now = new Date();
-    const hour = now.getHours();
-    const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    const date = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-    return `${date} · ${part}`;
-  })();
-  const firstName = userDisplayName.split(/\s+/)[0];
+  // Long date for the editorial eyebrow at the top of the Generate view.
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
   const handleSaveProfile = async (payload) => {
     const res = await authApi.updateUser(userId, payload);
@@ -511,27 +385,6 @@ const [editItineraryData, setEditItineraryData] = useState({
   }, [user, isDarkMode, toggleTheme]);
 
   const aiOutfitCount = useMemo(() => outfits.filter((outfit) => outfit.isAiGenerated).length, [outfits]);
-  const detectedConcepts = useMemo(() => {
-    if (!generatePrompt.trim()) return [];
-    const lower = generatePrompt.toLowerCase();
-    const found = [];
-    const seen = new Set();
-    RECOGNIZERS.forEach(({ category, keywords }) => {
-      keywords.forEach(kw => {
-        if (lower.includes(kw) && !seen.has(kw)) {
-          seen.add(kw);
-          found.push({ category, text: kw });
-        }
-      });
-    });
-    for (const c of KNOWN_CITIES) {
-      if (lower.includes(c)) {
-        found.push({ category: 'city', text: c.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ') });
-        break;
-      }
-    }
-    return found;
-  }, [generatePrompt]);
 
 
   const wardrobeTags = useMemo(() => {
@@ -564,12 +417,6 @@ const [editItineraryData, setEditItineraryData] = useState({
       return true;
     });
   }, [clothes, wardrobeTypeFilter, wardrobeSearch, wardrobeTagFilter]);
-
-
-  const todaysReadinessPercent = useMemo(() => {
-    if (todaysEventSummary.totalEvents === 0) return 100;
-    return Math.round((todaysEventSummary.plannedCount / todaysEventSummary.totalEvents) * 100);
-  }, [todaysEventSummary]);
 
 
   useEffect(() => {
@@ -692,9 +539,7 @@ const [editItineraryData, setEditItineraryData] = useState({
        const res = await plannerEventsApi.getByUser(userId);
        const payload = res.data || {};
        const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
-       const nextWeatherAlert = payload.weatherAlert;
        setPlannerEvents(Array.isArray(events) ? events : []);
-       setWeatherAlert(nextWeatherAlert ?? null);
      } catch (e) {
        console.error('Planner events error:', e);
      }
@@ -723,6 +568,17 @@ const [editItineraryData, setEditItineraryData] = useState({
     }
   }, [userId]);
 
+  // Forgotten pieces (not worn recently) for the "rediscover" nudge on the Generate view.
+  const fetchForgottenItems = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await statsApi.getWearStats(userId, { range: 'all-time' });
+      setForgottenItems(Array.isArray(res.data?.unwornRecently) ? res.data.unwornRecently : []);
+    } catch (e) {
+      console.error('Forgotten items error:', e);
+    }
+  }, [userId]);
+
   // Sub-type vocabulary (grouped by type) for the edit dropdown — static metadata, fetched once.
   const fetchSubtypes = useCallback(async () => {
     try {
@@ -742,8 +598,9 @@ const [editItineraryData, setEditItineraryData] = useState({
     fetchArchivedPlannerEvents();
     fetchWeather();
     fetchUsageRate();
+    fetchForgottenItems();
     fetchSubtypes();
-  }, [fetchClothes, fetchOutfits, fetchPlannerEvents, fetchArchivedPlannerEvents, fetchWeather, fetchUsageRate, fetchSubtypes, userId]);
+  }, [fetchClothes, fetchOutfits, fetchPlannerEvents, fetchArchivedPlannerEvents, fetchWeather, fetchUsageRate, fetchForgottenItems, fetchSubtypes, userId]);
 
   useEffect(() => {
     refresh();
@@ -790,39 +647,57 @@ return () => clearTimeout(timeoutId);
     return () => clearTimeout(timeoutId);
   }, [eventLocationSearch]);
 
-  const onGenerate = async (item = null) => {
+  const onGenerate = (item = null) => {
     if (item) setSelectedItem(item);
     setGenerationContext(item ? 'item' : 'today');
-    // Occasion (chip, deterministic style) + free-text details are combined here;
-    // the textarea itself stays clean.
-    const promptText = [selectedOccasion, generatePrompt.trim()].filter(Boolean).join('. ');
-    if (!item && promptText) {
-      setLoading(true);
-      setAiPromptText(promptText);
-      setAiExcludedSeedIds([]);
-      try {
-        const { data } = await outfitsApi.generateFromPrompt({
-          userId,
-          prompt: promptText,
-          threshold: 0.5,
-        });
-        setAiData(data.outfit);
-        setAiIntent(data.intent);
-        setAiModal(true);
-      } catch (err) {
-        handleApiAlert(err, 'Generation failed');
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setStyleSelectionModal(true);
+    // The user picks a style next; the optional occasion chip flavors the styling notes.
+    setStyleSelectionModal(true);
+  };
+
+  // fetch notes without blocking the modal.
+  const fetchStylingNotes = async (outfit, style) => {
+    const itemIds = (outfit?.selectedItems || []).map(i => i.id);
+    if (itemIds.length === 0) return;
+    setNotesLoading(true);
+    setAiStylingNotes([]);
+    try {
+      const { data } = await outfitsApi.getStylingNotes({
+        itemIds,
+        style: style || null,
+        occasion: null,
+        city,
+        tradeoffs: outfit?.warnings || [],
+      });
+      setAiStylingNotes(data.notes || []);
+    } catch {
+      setAiStylingNotes([]);
+    } finally {
+      setNotesLoading(false);
     }
+  };
+
+  // build around a rarely worn server-selected seed.
+  const onRediscover = () => {
+    setSelectedItem(null);
+    setGenerationContext('rediscover');
+    setStyleSelectionModal(true);
   };
 
   const executeGeneration = async (style, overrideCity = null) => {
     setStyleSelectionModal(false);
     setLoading(true);
+    if (useGemmaStylistForOutfits) {
+      setGeneratingProgress({
+        mode: 'stylist',
+        status: 'Gemma3 is styling your outfit',
+        detail: 'FashionCLIP is casting candidates, then Gemma3 chooses the final look before it opens.',
+        current: 1,
+        total: 3,
+      });
+      setGeneratingModal(true);
+    }
     const effectiveCity = overrideCity || city;
+    const rediscover = generationContext === 'rediscover';
 
     let startItem = selectedItem;
     if (generationContext === 'today') {
@@ -834,43 +709,184 @@ return () => clearTimeout(timeoutId);
         : clothes[Math.floor(Math.random() * clothes.length)];
     }
 
-    if (!startItem) { setLoading(false); return; }
+    // let rediscover pick the seed on the server.
+    if (!rediscover && !startItem) { setLoading(false); return; }
 
     try {
-      const { data } = await outfitsApi.generateAi({
+      const payload = {
         userId,
-        startItemId: startItem.id,
         threshold: 0.5,
         city: effectiveCity,
         style,
-        season: weatherInfo?.seasonSuggestion
-      });
+        season: weatherInfo?.seasonSuggestion,
+        preferUnusedItems: preferUnused || rediscover,
+      };
+      if (rediscover) {
+        payload.anchorOnUnused = true;
+      } else {
+        payload.startItemId = startItem.id;
+      }
+
+      const { data } = await outfitsApi.generateAi(payload);
+      if (useGemmaStylistForOutfits) setGeneratingModal(false);
       setAiData(data);
-      setAiIntent(null);
-      setAiPromptText(''); // not a prompt flow -> no "Generate another"
+      setAiInsight(null);
+      setAiStylingNotes([]);
       setAiModal(true);
+      fetchStylingNotes(data, style);
     } catch (err) {
+      if (useGemmaStylistForOutfits) setGeneratingModal(false);
       handleApiAlert(err, 'Generation failed');
     }
-    finally { setLoading(false); setSelectedItem(null); }
+    finally {
+      setLoading(false);
+      setSelectedItem(null);
+      setPreferUnused(false);
+      if (useGemmaStylistForOutfits) setGeneratingProgress(null);
+    }
   };
 
-  // Re-run the same prompt, excluding the seeds already shown, to surface a different top/outfit.
-  const onRegenerateAi = async () => {
-    if (!aiPromptText) return;
-    const currentSeedId = aiData?.selectedItems?.[0]?.id;
-    const excluded = currentSeedId ? [...aiExcludedSeedIds, currentSeedId] : aiExcludedSeedIds;
+  // keep one daily outfit stable until shuffle.
+  const ootdRealCity = (city && city !== 'Detecting...') ? city : null;
+  const weatherLocationLabel = ootdRealCity || 'Detecting location';
+  const ootdCtxRef = useRef({ city: null, weatherInfo: null });
+  ootdCtxRef.current = { city: ootdRealCity, weatherInfo };
+  const ootdKeyRef = useRef(null);
+  const ootdColorPreferenceKey = [
+    ...(user?.favoriteColors || user?.FavoriteColors || []).map(color => `fav:${color.toLowerCase()}`),
+    ...(user?.avoidColors || user?.AvoidColors || []).map(color => `avoid:${color.toLowerCase()}`),
+  ].sort().join(',');
+  // remember stylist refinements by generation.
+
+  // fetch daily outfit insight for cache.
+  const fetchOotdInsight = async (outfit, notesCity) => {
+    const itemIds = (outfit?.selectedItems || []).map(i => i.id);
+    if (itemIds.length === 0) return null;
+    setOotdInsightLoading(true);
+    setOotdInsight(null);
+    try {
+      const { data } = await outfitsApi.getOutfitInsight({
+        itemIds,
+        style: null,
+        occasion: null,
+        city: notesCity,
+        tradeoffs: outfit?.warnings || [],
+      });
+      setOotdInsight(data);
+      return data;
+    } catch {
+      setOotdInsight(null);
+      return null;
+    } finally {
+      setOotdInsightLoading(false);
+    }
+  };
+
+  const loadOutfitOfDay = useCallback(async (force = false) => {
+    if (!userId || clothes.length === 0) return;
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const key = `ootd_${OOTD_CACHE_VERSION}_${userId}_${dateKey}_${ootdOccasion}_${ootdColorPreferenceKey}`;
+    const { city: ctxCity, weatherInfo: ctxWeather } = ootdCtxRef.current;
+
+    // Already loaded (or loading) today's pick in this session — leave it alone unless forced.
+    // This is what keeps the look stable when you switch between Generate and other tabs.
+    if (!force && ootdKeyRef.current === key) return;
+
+    if (!force) {
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        try {
+          const entry = JSON.parse(cached);
+          // New shape: { outfit, insight, ... }. Old shapes: { outfit, notes } or the raw outfit.
+          const outfit = entry.outfit || entry;
+          ootdKeyRef.current = key;
+          setOotd(outfit);
+          if (entry.insight) {
+            setOotdInsight(entry.insight);
+          } else {
+            fetchOotdInsight(outfit, ctxCity); // legacy cache: backfill insight (no regenerate)
+          }
+          return;
+        } catch { /* fall through to regenerate */ }
+      }
+    }
+
+    // Claim the key up front so concurrent re-entries (fast tab switches) don't kick off a 2nd generation.
+    ootdKeyRef.current = key;
+    setOotdLoading(true);
+    setOotdInsight(null);
+    try {
+      const payload = {
+        userId,
+        threshold: 0.5,
+        season: ctxWeather?.seasonSuggestion,
+        preferUnusedItems: true,
+        anchorOnUnused: true,
+        occasion: ootdOccasion,
+        shuffle: force,
+      };
+      if (ctxCity) payload.city = ctxCity;
+
+      const { data } = await outfitsApi.generateAi(payload);
+      setOotd(data);
+
+      // Persist the look immediately (before the slower LLM insight) so a reload/tab-switch right
+      // after generation reads it from cache instead of generating a different outfit.
+      const baseEntry = {
+        outfit: data,
+        insight: null,
+        city: ctxCity,
+        temp: ctxWeather ? Math.round(ctxWeather.temperature) : null,
+        condition: ctxWeather?.condition || null,
+      };
+      try { localStorage.setItem(key, JSON.stringify(baseEntry)); } catch { /* storage full — skip cache */ }
+
+      const insight = await fetchOotdInsight(data, ctxCity);
+      try { localStorage.setItem(key, JSON.stringify({ ...baseEntry, insight })); } catch { /* skip */ }
+    } catch {
+      ootdKeyRef.current = null; // generation failed — allow a retry
+      setOotd(null);
+    } finally {
+      setOotdLoading(false);
+    }
+  }, [userId, clothes.length, ootdOccasion, ootdColorPreferenceKey]);
+
+  // Auto-load the daily pick when the user is on the Generate view and the wardrobe is ready.
+  useEffect(() => {
+    if (view === 'generate') loadOutfitOfDay(false);
+  }, [view, loadOutfitOfDay]);
+
+
+  // Open the daily pick in the full suggestion modal. The rich insight (headline + per-item notes +
+  // weather advice) is already computed for the daily look, so show that instead of the flat notes.
+  const openOutfitOfDay = () => {
+    if (!ootd) return;
+    setAiData(ootd);
+    setAiInsight(ootdInsight || null);
+    setAiStylingNotes([]);
+    setAiModal(true);
+    if (!ootdInsight) fetchStylingNotes(ootd, null); // fallback only if the insight didn't load
+  };
+
+  // Generate a weather-aware outfit anchored on a forgotten item and open it directly.
+  const buildAroundForgotten = async (item) => {
     setLoading(true);
     try {
-      const { data } = await outfitsApi.generateFromPrompt({
+      const payload = {
         userId,
-        prompt: aiPromptText,
         threshold: 0.5,
-        excludedSeedItemIds: excluded,
-      });
-      setAiData(data.outfit);
-      setAiIntent(data.intent);
-      setAiExcludedSeedIds(excluded);
+        season: weatherInfo?.seasonSuggestion,
+        preferUnusedItems: true,
+        startItemId: item.id,
+      };
+      if (ootdRealCity) payload.city = ootdRealCity;
+
+      const { data } = await outfitsApi.generateAi(payload);
+      setAiData(data);
+      setAiInsight(null);
+      setAiStylingNotes([]);
+      setAiModal(true);
+      fetchStylingNotes(data, null);
     } catch (err) {
       handleApiAlert(err, 'Generation failed');
     } finally {
@@ -904,11 +920,24 @@ return () => clearTimeout(timeoutId);
         const res = await clothingApi.process(fd);
         results.push(res.data);
       }
-      
-      if (results.length > 0) {
-        setValidationQueue(results);
-        
-        const firstItem = results[0];
+
+      // When the user enabled auto-blocking, reject near-duplicates outright instead of
+      // routing them through validation; the rest continue normally.
+      const blockDupes = user?.blockDuplicateUploads ?? user?.BlockDuplicateUploads ?? false;
+      let toValidate = results;
+      if (blockDupes) {
+        const rejected = results.filter(r => r.possibleDuplicates?.length > 0);
+        toValidate = results.filter(r => !(r.possibleDuplicates?.length > 0));
+        if (rejected.length > 0) {
+          const names = rejected.map(r => r.possibleDuplicates[0]?.name).filter(Boolean).join(', ');
+          alert(`Skipped ${rejected.length} item(s) you already own (similar to: ${names}). Turn off "Block duplicate uploads" in Preferences to add them anyway.`);
+        }
+      }
+
+      if (toValidate.length > 0) {
+        setValidationQueue(toValidate);
+
+        const firstItem = toValidate[0];
         setOriginalPredictions({
           type: firstItem.type,
           color: firstItem.color,
@@ -927,6 +956,10 @@ return () => clearTimeout(timeoutId);
         setCurrentStep(0);
         setUploadModal(false);
         setValidationModal(true);
+      } else {
+        // Everything was blocked as a duplicate — just close the upload modal.
+        setUploadModal(false);
+        setUploadData([]);
       }
     } catch (err) {
       handleApiAlert(err, 'Processing failed');
@@ -1028,10 +1061,24 @@ return () => clearTimeout(timeoutId);
            <img 
             src={`data:image/png;base64,${validationData.processedImageB64}`} 
             alt="Processed" 
-            style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '20px', border: '1px solid #f5f5f5', padding: '10px', background: '#fcfcfc', objectFit: 'contain' }} 
+            style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '20px', border: '1px solid #f5f5f5', padding: '10px', background: '#fcfcfc', objectFit: 'contain' }}
           />
         </div>
-        
+
+        {currentStep === 0 && validationData.possibleDuplicates?.length > 0 && (
+          <div className="validation-dupe-notice" style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '12px 16px', marginBottom: '20px', background: 'var(--bg-subtle)', border: '1px solid var(--border-muted)', borderRadius: '14px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {validationData.possibleDuplicates.slice(0, 3).map(d => (
+                <img key={d.id} src={d.imageUrl} alt={d.name} title={`${d.name} · ${Math.round((d.similarity ?? 0) * 100)}% match`} style={{ width: '44px', height: '44px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} />
+              ))}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--fg-faint)', lineHeight: 1.4 }}>
+              You may already own this — {Math.round((validationData.possibleDuplicates[0].similarity ?? 0) * 100)}% similar to{' '}
+              <strong>{validationData.possibleDuplicates[0].name}</strong>. You can still add it — just checking.
+            </div>
+          </div>
+        )}
+
         <div className="step-indicator" style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '30px' }}>
           {steps.map((_, i) => (
             <div key={i} style={{ width: '30px', height: '3px', background: i === currentStep ? 'var(--accent)' : (i < currentStep ? 'var(--border-muted)' : 'var(--border-subtle)'), borderRadius: '2px', transition: 'all 0.3s' }} />
@@ -1093,7 +1140,7 @@ return () => clearTimeout(timeoutId);
     setLoading(true);
     try {
       const itemIds = aiData.selectedItems.map(i => i.id);
-      await outfitsApi.create({ userId, name: aiData.name, itemIds, isAiGenerated: true });
+      await outfitsApi.create({ userId, name: aiData.name, itemIds, isAiGenerated: true, aiGenerationId: aiData.generationId });
       recordAiFeedback();
       setAiModal(false);
       setView('outfits');
@@ -1162,15 +1209,24 @@ return () => clearTimeout(timeoutId);
     }
   };
 
-  const onWearOutfit = async (outfitId) => {
+  const onWearOutfit = async (outfitOrId) => {
+    const outfit = typeof outfitOrId === 'object'
+      ? outfitOrId
+      : outfits.find((candidate) => candidate.id === outfitOrId);
+    const outfitId = outfit?.id || outfitOrId;
+
     try {
       await outfitsApi.recordWear(outfitId, { userId });
-      alert("Outfit recorded for today!");
-      refresh(); 
+      pushToast({
+        type: 'success',
+        title: 'Wear recorded',
+        message: `${outfit?.name || 'Outfit'} was added to today’s wear history.`,
+      });
+      refresh();
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to record wear event.');
       console.error('Wear event error:', message);
-      alert(message);
+      pushToast({ type: 'error', title: 'Wear not recorded', message });
     }
   };
 
@@ -1224,10 +1280,11 @@ return () => clearTimeout(timeoutId);
         endDate: new Date(createEventData.endDate).toISOString()
       });
       
-              // Reset wizard state
-              setWizardStep(0);
-              setWizardPreview(null);
-              setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [] });
+      // Reset wizard state
+      setWizardStep(0);
+      setWizardPreview(null);
+      setCreateEventData({ name: '', type: 'Vacation', location: '', startDate: '', endDate: '', preferredStyles: [], reuseAfterDays: defaultReuseAfterDays });
+      setCreateEventModal(false);
       fetchPlannerEvents();
     } catch (err) {
       handleApiAlert(err, 'Create event failed');
@@ -1258,11 +1315,7 @@ return () => clearTimeout(timeoutId);
        const res = await plannerEventsApi.getByUser(userId);
        const payload = res.data || {};
        const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
-       const nextWeatherAlert = payload.weatherAlert;
        const updatedEvent = events?.find(e => e.id === editEventData.id);
-       if (nextWeatherAlert) {
-         setWeatherAlert(nextWeatherAlert);
-       }
        if (updatedEvent) {
          setSelectedPlannerEvent(updatedEvent);
        }
@@ -1457,11 +1510,7 @@ const onSaveOutfitEdit = async (saveData) => {
        const res = await plannerEventsApi.getByUser(userId);
        const payload = res.data || {};
        const events = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
-       const nextWeatherAlert = payload.weatherAlert;
        const updatedEvent = events?.find(e => e.id === outfitEditingData.plannerEventId);
-       if (nextWeatherAlert) {
-         setWeatherAlert(nextWeatherAlert);
-       }
        if (updatedEvent) {
          setSelectedPlannerEvent(updatedEvent);
          setPlannerEvents(prev => prev.map(ev => ev.id === outfitEditingData.plannerEventId ? updatedEvent : ev));
@@ -1485,10 +1534,6 @@ const onRegenerateItinerary = async (plannerEventId, itineraryId) => {
        const res = await plannerEventsApi.getByUser(userId);
        const payload = res.data || {};
        const updatedEvents = Array.isArray(payload.plannerEvents) ? payload.plannerEvents : payload;
-       const nextWeatherAlert = payload.weatherAlert;
-       if (nextWeatherAlert) {
-         setWeatherAlert(nextWeatherAlert);
-       }
        setPlannerEvents(updatedEvents);
       
       // Update selected event if needed
@@ -1624,10 +1669,6 @@ const onUpdateItinerary = async () => {
     setGeneratingProgress({ status: 'Generating...', current: 0, total: 0 });
     try {
       const res = await plannerEventsApi.generateOutfits(plannerEventId, { userId });
-      const alertPayload = plannerEventsApi.extractGenerateOutfitsWeatherAlert(res);
-      if (alertPayload) {
-        setWeatherAlert(alertPayload);
-      }
       setGeneratingProgress({ 
         status: 'Done!', 
         current: res.data.outfitsCreated, 
@@ -1760,6 +1801,9 @@ const onUpdateItinerary = async () => {
             </small>
           </div>
           <div className="spacer" />
+          <NotificationBell onActivate={(n) => {
+            if (n.type === 'WeatherAlert') setView('planner');
+          }} />
           <button className="sw-icon-btn" onClick={() => fileInputRef.current?.click()} title="Add clothing item">{IC.plus}</button>
           <button className="sw-icon-btn" onClick={onLogout} title="Log out">{IC.logout}</button>
         </div>
@@ -1767,100 +1811,150 @@ const onUpdateItinerary = async () => {
         <div className="sw-content">
           {view === 'generate' ? (
             <div className="sw-ed-page">
-              {weatherAlert && (
-                <WeatherAlertNotice
-                  alert={weatherAlert}
-                  locationLabel={
-                    weatherAlert?.plannerEventId && plannerEvents.find(e => e.id === weatherAlert.plannerEventId)?.location
-                  }
-                  onGenerateAlternative={() => {
-                    if (weatherAlert?.plannerEventId) {
-                      const event = plannerEvents.find(e => e.id === weatherAlert.plannerEventId);
-                      if (event && weatherAlert.eventDate) {
-                        const alertDate = new Date(weatherAlert.eventDate).toDateString();
-                        const itinerary = event.itineraries.find(i => new Date(i.date).toDateString() === alertDate);
-                        if (itinerary) {
-                          onRegenerateItinerary(event.id, itinerary.id);
-                          setWeatherAlert(null);
-                          return;
-                        }
-                      }
-                      onGenerateEventOutfits(weatherAlert.plannerEventId);
-                    }
-                  }}
-                  onDismiss={() => setWeatherAlert(null)}
-                />
-              )}
-
-              <div className="sw-ed-eyebrow">{greetingLine}</div>
-              <div className="sw-ed-top">
-                <h1 className="sw-ed-hero">What are we wearing <em>today</em>, {firstName}?</h1>
-                <div className="sw-ed-weather">
-                  <button className="t" onClick={() => { setSearchTerm(''); setCityModal(true); }}>
-                    {weatherInfo ? `${Math.round(weatherInfo.temperature)}°` : '--°'}
+              <div className="sw-dash-top">
+                <section className="sw-ootd-panel">
+              <div className="sw-ootd-bar">
+                <span className="sw-ed-eyebrow" style={{ margin: 0 }}>{todayLabel}</span>
+                <div className="grow" />
+                <div className="sw-ootd-actions">
+                  <button className="sw-ed-ghost" onClick={onRediscover} disabled={loading || clothes.length === 0} title="Build an outfit around something you rarely wear">Rediscover</button>
+                  <button className="sw-ed-ghost" onClick={() => loadOutfitOfDay(true)} disabled={ootdLoading} title="Pick a fresh look for today">{ootdLoading ? 'Styling…' : 'Shuffle ↻'}</button>
+                  <button className="sw-ed-go" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>
+                    {loading ? 'Generating...' : useGemmaStylistForOutfits ? 'Style with Gemma3' : 'Generate'}
                   </button>
-                  <div className="c">{weatherInfo?.condition || 'updating…'}</div>
-                  <button className="loc" onClick={() => { setSearchTerm(''); setCityModal(true); }}>{city}</button>
                 </div>
               </div>
 
-              <div className="sw-ed-prompt">
-                <textarea
-                  placeholder="Describe the outfit you need — e.g. smart casual for a dinner, nothing black, in Cluj"
-                  value={generatePrompt}
-                  onChange={e => setGeneratePrompt(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); } }}
-                />
-                {detectedConcepts.length > 0 && (
-                  <div className="sw-ed-detected">
-                    <span className="lbl">recognized</span>
-                    {detectedConcepts.map((c, i) => (
-                      <span key={i} className={`sw-detected-badge sw-detected-badge--${c.category}`}>{c.text}</span>
+              <div className="sw-ootd">
+                {ootd ? (
+                  <div className="sw-ootd-strip" onClick={openOutfitOfDay} role="button" tabIndex={0}>
+                    <div className="sw-ootd-thumbs">
+                      {(ootd.selectedItems || []).map(it => (
+                        <div key={it.id} className="t"><img src={it.processedImageUrl} alt={it.name} /></div>
+                      ))}
+                    </div>
+                    <div className="sw-ootd-mid">
+                      <div className="h">{ootdInsight?.headline || ootd.name || 'Today’s look'}</div>
+                      <div className="a">
+                        {ootdInsightLoading && !ootdInsight
+                          ? 'composing today’s idea…'
+                          : (ootdInsight?.weatherAdvice || 'A fresh look featuring a piece you rarely wear.')}
+                      </div>
+                    </div>
+                    <div className="sw-ootd-rt">
+                      <button
+                        className="wx"
+                        onClick={(e) => { e.stopPropagation(); setSearchTerm(''); setCityModal(true); }}
+                        title="Change city"
+                      >
+                        <strong>{weatherInfo ? `${Math.round(weatherInfo.temperature)}°` : '--°'}</strong>
+                        <span>{weatherInfo?.conditionDetail || weatherInfo?.condition || 'updating…'}</span>
+                        <span className="loc">{weatherLocationLabel}</span>
+                        {weatherInfo?.rainChance != null && weatherInfo.rainChance > 0 && (
+                          <span className="r">{weatherInfo.rainChance}%</span>
+                        )}
+                      </button>
+                      <span className="cta">View &amp; save →</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="sw-ootd-empty">{ootdLoading ? 'Putting together today’s look…' : 'No look yet — hit Shuffle to style one.'}</div>
+                )}
+              </div>
+
+                </section>
+
+                <aside className="sw-dash-rail">
+                  <button
+                    className="sw-dash-weather"
+                    onClick={() => { setSearchTerm(''); setCityModal(true); }}
+                    title="Change city"
+                  >
+                    <span className="sw-dash-weather-title" title={`Weather in ${weatherLocationLabel}`}>
+                      Weather <b>{weatherLocationLabel}</b>
+                    </span>
+                    <strong>{weatherInfo ? `${Math.round(weatherInfo.temperature)}\u00B0` : '--\u00B0'}</strong>
+                    <small>{weatherInfo?.conditionDetail || weatherInfo?.condition || 'updating...'}</small>
+                    {weatherInfo?.rainChance != null && weatherInfo.rainChance > 0 && (
+                      <em>{weatherInfo.rainChance}% rain</em>
+                    )}
+                  </button>
+
+                  <div className="sw-dash-stats">
+                    <div><span>Wardrobe</span><strong>{clothes.length}</strong></div>
+                    <div><span>Looks</span><strong>{outfits.length}</strong></div>
+                    <div><span>Usage</span><strong>{Math.round(usageRate)}%</strong></div>
+                  </div>
+
+                  {nextUpEvent && (
+                    <div className="sw-dash-next">
+                      <span>Next up</span>
+                      <h3>{nextUpEvent.event.name}</h3>
+                      <p>
+                        {nextUpEvent.daysUntil === 0 ? 'Today' : nextUpEvent.daysUntil === 1 ? 'Tomorrow' : `In ${nextUpEvent.daysUntil} days`}
+                        {' · '}
+                        {nextUpEvent.event.location}
+                      </p>
+                      <button
+                        className="sw-ed-ghost"
+                        onClick={() => { setSelectedPlannerEvent(nextUpEvent.event); setSelectedDayIndex(null); setView('planner'); }}
+                      >
+                        {nextUpEvent.needsPlan ? 'Plan outfit' : 'View planner'}
+                      </button>
+                    </div>
+                  )}
+                </aside>
+              </div>
+
+              {outfits.length > 0 && (
+                <div className="sw-ed-sec">
+                  <div className="sw-ed-sec-h">
+                    <span className="sw-ed-eyebrow" style={{ margin: 0 }}>Recent looks</span>
+                    <div className="grow" />
+                    <button className="sw-ed-more" onClick={() => setView('outfits')}>See all →</button>
+                  </div>
+                  <div className="sw-recent">
+                    {outfits.slice(0, 6).map(o => (
+                      <div key={o.id} className="sw-recent-card">
+                        <div className="sw-recent-thumbs" onClick={() => setSelectedItem(o.items?.[0] || null)} role="button" tabIndex={0}>
+                          {o.items?.slice(0, 4).map(item => (
+                            <div key={item.id} className="o-thumb">
+                              <img src={item.processedImageUrl} alt={item.name} />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="sw-recent-info">
+                          <div className="ttl" title={o.name}>{o.name}</div>
+                          <div className="sub">{new Date(o.createdAt).toLocaleDateString()}{o.isAiGenerated ? ' · AI' : ''}</div>
+                        </div>
+                        <button className="sw-recent-wear" onClick={() => onWearOutfit(o)}>Wear</button>
+                      </div>
                     ))}
                   </div>
-                )}
-                <div className="sw-ed-chips">
-                  {OCCASION_CHIPS.map(o => (
-                    <button
-                      key={o.kw}
-                      className={`sw-ed-chip${selectedOccasion === o.kw ? ' on' : ''}`}
-                      onClick={() => setSelectedOccasion(prev => (prev === o.kw ? null : o.kw))}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                  <div className="sw-ed-actions">
-                    <button className="sw-ed-ghost" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>Surprise me</button>
-                    <button className="sw-ed-go" onClick={() => onGenerate()} disabled={loading || clothes.length === 0}>{loading ? 'Generating…' : 'Generate →'}</button>
-                  </div>
                 </div>
-              </div>
+              )}
 
-              {nextUpEvent && (
-                <div className="sw-ed-nextup">
-                  <div className="body">
-                    <div className="when">
-                      <span className="lbl">Next up</span>
-                      {' · '}
-                      {nextUpEvent.daysUntil === 0 ? 'Today' : nextUpEvent.daysUntil === 1 ? 'Tomorrow' : `In ${nextUpEvent.daysUntil} days`}
-                      {' · '}
-                      {new Date(nextUpEvent.event.startDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
-                    </div>
-                    <h3>{nextUpEvent.event.name}</h3>
-                    <div className="meta">
-                      {[
-                        nextUpEvent.event.location,
-                        nextUpEvent.forecast ? `${Math.round(nextUpEvent.forecast.temperature)}° ${nextUpEvent.forecast.condition}` : null,
-                        nextUpEvent.needsPlan ? 'outfit not planned yet' : 'outfit planned',
-                      ].filter(Boolean).join(' · ')}
-                    </div>
+              {forgottenItems.length > 0 && (
+                <div className="sw-ed-sec">
+                  <div className="sw-ed-sec-h">
+                    <span className="sw-ed-eyebrow" style={{ margin: 0 }}>Rediscover</span>
+                    <div className="grow" />
+                    <button className="sw-ed-more" onClick={() => setView('stats')}>See usage →</button>
                   </div>
-                  <button
-                    className="cta"
-                    onClick={() => { setSelectedPlannerEvent(nextUpEvent.event); setSelectedDayIndex(null); setView('planner'); }}
-                  >
-                    {nextUpEvent.needsPlan ? 'Plan the outfit →' : 'View in planner →'}
-                  </button>
+                  <div className="sw-forgotten">
+                    {forgottenItems.slice(0, 6).map(it => (
+                      <div key={it.id} className="sw-forgotten-card">
+                        <div className="sw-forgotten-img">
+                          <img src={it.imageUrl} alt={it.name} />
+                          {it.daysSinceLastWear != null && <span className="sw-forgotten-days">{it.daysSinceLastWear}d</span>}
+                        </div>
+                        <div className="sw-forgotten-name" title={it.name}>{it.name}</div>
+                        <button className="sw-forgotten-cta" onClick={() => buildAroundForgotten(it)} disabled={loading}>
+                          Build a look →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -2014,7 +2108,7 @@ const onUpdateItinerary = async () => {
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
                         <button className="sw-btn ghost" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [], tags: o.tags || [] }); setEditModal(true); }}>Edit</button>
-                        <button className="sw-btn" onClick={() => onWearOutfit(o.id)}>Wear</button>
+                        <button className="sw-btn" onClick={() => onWearOutfit(o)}>Wear</button>
                       </div>
                     </div>
                   ))}
@@ -2061,7 +2155,7 @@ const onUpdateItinerary = async () => {
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
                         <button className="sw-btn ghost" onClick={() => { setEditData({ id: o.id, name: o.name, itemIds: o.items?.map(i => i.id) || [], tags: o.tags || [] }); setEditModal(true); }}>Edit</button>
-                        <button className="sw-btn" onClick={() => onWearOutfit(o.id)}>Wear</button>
+                        <button className="sw-btn" onClick={() => onWearOutfit(o)}>Wear</button>
                       </div>
                     </div>
                   ))}
@@ -2086,7 +2180,10 @@ const onUpdateItinerary = async () => {
                   <div className="sw-section-h" style={{ marginBottom: 12 }}>
                     <h2>Events</h2>
                     <div style={{ flex: 1 }} />
-                    <button className="sw-btn" onClick={() => setCreateEventModal(true)}>
+                    <button className="sw-btn" onClick={() => {
+                      setCreateEventData((data) => ({ ...data, reuseAfterDays: defaultReuseAfterDays }));
+                      setCreateEventModal(true);
+                    }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                       <span>New</span>
                     </button>
@@ -2146,7 +2243,10 @@ const onUpdateItinerary = async () => {
                   <div className="sw-empty" style={{ height: '100%', gridColumn: 'unset' }}>
                     <h3>No event selected</h3>
                     <p>Pick an event from the list, or create a new one.</p>
-                    <button className="sw-btn accent" onClick={() => setCreateEventModal(true)}>New event</button>
+                    <button className="sw-btn accent" onClick={() => {
+                      setCreateEventData((data) => ({ ...data, reuseAfterDays: defaultReuseAfterDays }));
+                      setCreateEventModal(true);
+                    }}>New event</button>
                   </div>
 
                 ) : selectedDayIndex !== null && plannerDays[selectedDayIndex] ? (() => {
@@ -2272,7 +2372,7 @@ const onUpdateItinerary = async () => {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                             <span>Generate outfits</span>
                           </button>
-                          <button className="sw-btn ghost" onClick={() => { setEditEventData({ id: selectedPlannerEvent.id, name: selectedPlannerEvent.name, type: selectedPlannerEvent.type, location: selectedPlannerEvent.location, startDate: selectedPlannerEvent.startDate.split('T')[0], endDate: selectedPlannerEvent.endDate.split('T')[0], preferredStyles: selectedPlannerEvent.preferredStyles || [] }); setEditEventModal(true); }}>Edit</button>
+                          <button className="sw-btn ghost" onClick={() => { setEditEventData({ id: selectedPlannerEvent.id, name: selectedPlannerEvent.name, type: selectedPlannerEvent.type, location: selectedPlannerEvent.location, startDate: selectedPlannerEvent.startDate.split('T')[0], endDate: selectedPlannerEvent.endDate.split('T')[0], preferredStyles: selectedPlannerEvent.preferredStyles || [], reuseAfterDays: selectedPlannerEvent.reuseAfterDays || null }); setEditEventModal(true); }}>Edit</button>
                           <button className="sw-del-btn" title="Archive" onClick={() => { if(confirm('Archive this event?')) onArchiveEvent(selectedPlannerEvent.id); }} disabled={loading}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
                           </button>
@@ -2352,8 +2452,14 @@ const onUpdateItinerary = async () => {
               onSavePreferences={handleSavePreferences}
               onDeleteAccount={handleDeleteAccount}
               favoriteColors={user?.favoriteColors || user?.FavoriteColors || []}
+              avoidColors={user?.avoidColors || user?.AvoidColors || []}
               outerwearMode={user?.outerwearMode ?? user?.OuterwearMode ?? 'auto'}
               outerwearTempThreshold={user?.outerwearTempThreshold ?? user?.OuterwearTempThreshold ?? 23}
+              varietyLevel={user?.varietyLevel ?? user?.VarietyLevel ?? 'normal'}
+              blockDuplicateUploads={user?.blockDuplicateUploads ?? user?.BlockDuplicateUploads ?? false}
+              preferLightOnHotDays={user?.preferLightOnHotDays ?? user?.PreferLightOnHotDays ?? true}
+              useGemmaStylistForOutfits={useGemmaStylistForOutfits}
+              defaultReuseAfterDays={defaultReuseAfterDays}
               clothes={clothes}
               outfits={outfits}
               aiOutfitCount={aiOutfitCount}
@@ -2395,24 +2501,36 @@ const onUpdateItinerary = async () => {
         setEditItemData={setEditItemData}
         subtypeOptions={subtypeOptions}
         onUpdateItem={onUpdateItem}
-        onGenerate={onGenerate} 
-        loading={loading} 
+        onGenerate={onGenerate}
+        loading={loading}
+        onSelectSimilar={(item) => {
+          // Swap the inspected item to a similar one; prefer the full wardrobe record if we have it.
+          const full = clothes.find(c => c.id === item.id) || item;
+          setEditItemMode(false);
+          setSelectedItem(full);
+        }}
       />
 
-      <StyleSelectionModal 
-        isOpen={styleSelectionModal} 
-        onClose={() => setStyleSelectionModal(false)} 
-        executeGeneration={executeGeneration} 
+      <StyleSelectionModal
+        isOpen={styleSelectionModal}
+        onClose={() => setStyleSelectionModal(false)}
+        executeGeneration={executeGeneration}
+        isRediscover={generationContext === 'rediscover'}
+        preferUnused={preferUnused}
+        setPreferUnused={setPreferUnused}
+        useGemmaStylistForOutfits={useGemmaStylistForOutfits}
       />
 
       <AiSuggestionModal
         isOpen={aiModal}
-        onClose={() => { setAiModal(false); setAiIntent(null); }}
+        onClose={() => { setAiModal(false); setAiStylingNotes([]); setAiInsight(null); }}
         aiData={aiData}
         setAiData={setAiData}
-        intent={aiIntent}
+        stylingNotes={aiStylingNotes}
+        notesLoading={notesLoading}
+        insight={aiInsight}
         onSaveAiOutfit={onSaveAiOutfit}
-        onRegenerate={aiPromptText ? onRegenerateAi : null}
+        onRegenerate={null}
         loading={loading}
       />
 
@@ -2459,7 +2577,7 @@ const onUpdateItinerary = async () => {
           setCreateEventModal(false); 
           setWizardStep(0); 
           setWizardPreview(null); 
-          setCreateEventData({ name: "", type: "Vacation", location: "", startDate: "", endDate: "", preferredStyles: [] }); 
+          setCreateEventData({ name: "", type: "Vacation", location: "", startDate: "", endDate: "", preferredStyles: [], reuseAfterDays: defaultReuseAfterDays });
         }} 
         wizardStep={wizardStep} 
         setWizardStep={setWizardStep} 
@@ -2475,6 +2593,7 @@ const onUpdateItinerary = async () => {
         onCreatePlannerEvent={onCreatePlannerEvent} 
         wizardLoading={wizardLoading} 
         loading={loading} 
+        defaultReuseAfterDays={defaultReuseAfterDays}
       />
       {/* EDIT EVENT MODAL */}
       <EditEventModal 

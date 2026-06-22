@@ -68,10 +68,6 @@ namespace WardrobeManager.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("OriginalImageUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("ProcessedImageUrl")
                         .HasColumnType("text");
 
@@ -210,38 +206,6 @@ namespace WardrobeManager.Infrastructure.Migrations
                     b.ToTable("PlannerEvents");
                 });
 
-            modelBuilder.Entity("WardrobeManager.Domain.Entities.Recommendation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ImageUrl")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Reason")
-                        .HasColumnType("text");
-
-                    b.Property<string>("SuggestedItemName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SuggestedItemUrl")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("Recommendations");
-                });
-
             modelBuilder.Entity("WardrobeManager.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -367,17 +331,6 @@ namespace WardrobeManager.Infrastructure.Migrations
                 {
                     b.HasOne("WardrobeManager.Domain.Entities.User", "User")
                         .WithMany("PlannerEvents")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("WardrobeManager.Domain.Entities.Recommendation", b =>
-                {
-                    b.HasOne("WardrobeManager.Domain.Entities.User", "User")
-                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

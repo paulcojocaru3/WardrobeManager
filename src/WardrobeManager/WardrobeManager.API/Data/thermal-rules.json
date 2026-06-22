@@ -1,0 +1,8 @@
+{
+  "freezingC": 10,
+  "coldC": 15,
+  "hotC": 22,
+  "warmOnlySubTypes": ["shorts", "sandals", "flip flops"],
+  "warmOnlyNameHints": ["shorts", "sandals"],
+  "winterSeasons": ["Winter"]
+}

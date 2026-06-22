@@ -22,52 +22,52 @@ public sealed class ColorPreferenceEvaluatorTests
     public void Metadata_IsStable()
     {
         Assert.Equal("ColorPreference", _sut.Name);
-        Assert.Equal(0.20, _sut.Weight);
     }
 
     [Fact]
     public void Evaluate_Abstains_WhenNoColorSignal()
     {
-        Assert.Null(_sut.Evaluate(TestData.Item(color: "red"), Context()));
+        Assert.Equal(1.0, _sut.Evaluate(TestData.Item(color: "red"), Context()), 3);
     }
 
     [Fact]
     public void Evaluate_Abstains_WhenCandidateHasNoColor()
     {
-        Assert.Null(_sut.Evaluate(TestData.Item(color: null), Context(desired: new[] { "red" })));
+        Assert.Equal(1.0, _sut.Evaluate(TestData.Item(color: null), Context(desired: new[] { "red" })), 3);
     }
 
     [Fact]
-    public void Evaluate_AvoidedColor_Vetoes()
+    public void Evaluate_AvoidedColor_IsStronglyPenalized_VetoMovedToFeasibility()
     {
+        // the hard avoid-color veto now lives in IGarmentFeasibility; the soft evaluator keeps a strong
         var result = _sut.Evaluate(TestData.Item(color: "red"), Context(avoid: new[] { "red" }));
-        Assert.Equal(-1.0, result!.Value, 3);
+        Assert.Equal(0.2, result, 3);
     }
 
     [Fact]
     public void Evaluate_DesiredColorMatch_ScoresMax()
     {
         var result = _sut.Evaluate(TestData.Item(color: "navy blue"), Context(desired: new[] { "blue" }));
-        Assert.Equal(1.0, result!.Value, 3);
+        Assert.Equal(1.2, result, 3);
     }
 
     [Fact]
     public void Evaluate_DesiredColorMiss_IsPenalized()
     {
         var result = _sut.Evaluate(TestData.Item(color: "red"), Context(desired: new[] { "blue" }));
-        Assert.Equal(-0.3, result!.Value, 3);
+        Assert.Equal(0.8, result, 3);
     }
 
     [Fact]
     public void Evaluate_PreferredColorMatch_GetsSoftNudge()
     {
         var result = _sut.Evaluate(TestData.Item(color: "green"), Context(preferred: new[] { "green" }));
-        Assert.Equal(0.5, result!.Value, 3);
+        Assert.Equal(1.1, result, 3);
     }
 
     [Fact]
     public void Evaluate_PreferredOnly_NoMatch_Abstains()
     {
-        Assert.Null(_sut.Evaluate(TestData.Item(color: "red"), Context(preferred: new[] { "green" })));
+        Assert.Equal(1.0, _sut.Evaluate(TestData.Item(color: "red"), Context(preferred: new[] { "green" })), 3);
     }
 }

@@ -1,4 +1,3 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Users.Dtos;
@@ -7,21 +6,18 @@ namespace WardrobeManager.Application.Users.Commands;
 
 public sealed class UpdateUserCommandHandler(
     IUserRepository userRepository,
-    IPasswordHasher passwordHasher,
-    IValidator<UpdateUserCommand> validator
+    IPasswordHasher passwordHasher
 ) : IRequestHandler<UpdateUserCommand, UserDto>
 {
     public async Task<UserDto> Handle(UpdateUserCommand request, CancellationToken ct)
     {
-        await validator.ValidateAndThrowAsync(request, ct);
-
         var user = await userRepository.GetByIdAsync(request.UserId, ct);
         if (user == null)
         {
             throw new Exception("User not found.");
         }
 
-        // Any credential change requires proving knowledge of the current password.
+        // any credential change requires proving knowledge of the current password.
         var changingCredentials = request.NewPassword != null
             || (request.Email != null && request.Email != user.Email)
             || (request.Username != null && request.Username != user.Username);

@@ -8,7 +8,8 @@ public sealed class GenerateAiOutfitCommandValidator : AbstractValidator<Generat
     public GenerateAiOutfitCommandValidator()
     {
         RuleFor(x => x.UserId).NotEmpty();
-        RuleFor(x => x.StartItemId).NotEmpty();
+        // require a seed unless rediscover mode chooses one.
+        RuleFor(x => x.StartItemId).NotNull().NotEqual(Guid.Empty).When(x => !x.AnchorOnUnused);
         RuleFor(x => x.Threshold).InclusiveBetween(0, 1);
     }
 }

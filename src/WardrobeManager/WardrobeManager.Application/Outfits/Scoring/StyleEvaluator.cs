@@ -6,18 +6,13 @@ namespace WardrobeManager.Application.Outfits.Scoring;
 public sealed class StyleEvaluator : IOutfitEvaluator
 {
     public string Name => "Style";
-    public double Weight => 0.30;
 
-    public double? Evaluate(ClothingItem candidate, OutfitGenerationContext context)
+    public double Evaluate(ClothingItem candidate, OutfitGenerationContext context)
     {
         bool hasStyle = !string.IsNullOrEmpty(context.TargetStyle);
-        if (!hasStyle && context.Formality == null) return null; // nothing to judge
+        if (!hasStyle && context.Formality == null) return 1.0;
 
-        string usage = candidate.Usage;
-        if (usage == null)
-        {
-            usage = "";
-        }
+        string usage = candidate.Usage ?? "";
 
         double? styleScore = null;
         if (hasStyle)
@@ -25,70 +20,44 @@ public sealed class StyleEvaluator : IOutfitEvaluator
             string target = context.TargetStyle!;
             if (string.IsNullOrEmpty(usage))
             {
-                styleScore = 0.3; // unknown style -> mild uncertainty
-            }
-            else if (IsHardMismatch(target, usage))
-            {
-                return -1.0; // never acceptable (e.g. Sports in a Formal outfit)
+                styleScore = 0.0; // Unknown style -> neutral (neither bonus nor penalty)
             }
             else if (usage.Contains(target, StringComparison.OrdinalIgnoreCase))
             {
-                styleScore = 1.0; // exact match
+                styleScore = 1.0; // Exact match -> max bonus
             }
             else
             {
-                int distance = Math.Abs(FormalityRank(usage) - FormalityRank(target));
+                int distance = Math.Abs(FormalityScale.RankOfUsage(usage) - FormalityScale.RankOfUsage(target));
                 styleScore = distance switch
                 {
-                    0 => 0.8,   // same formality level, different label
-                    1 => 0.6,   // adjacent style (e.g. smart casual for a casual ask) -> fine, small dip
-                    2 => 0.1,   // two notches off -> dispreferred
-                    _ => -0.3   // far apart (e.g. formal for a casual ask) -> penalized
+                    0 => 0.4,   // Same formality level, different label -> slight bonus
+                    1 => -0.4,  // Adjacent (e.g. Casual when Sports requested) -> penalty!
+                    2 => -0.8,  // Two notches off -> strong penalty
+                    _ => -1.0   // Far apart -> soft veto
                 };
             }
         }
 
-        // Secondary: explicit formality 1–5 (mapped to rank 0–4).
         double? formalityScore = null;
-        if (context.Formality is int f && !string.IsNullOrEmpty(usage))
+        if (context.Formality is int f && (candidate.Formality.HasValue || !string.IsNullOrEmpty(usage)))
         {
-            int desiredRank = Math.Clamp(f - 1, 0, 4);
-            int diff = Math.Abs(FormalityRank(usage) - desiredRank);
-            formalityScore = diff switch { 0 => 1.0, 1 => 0.5, 2 => 0.0, _ => -0.4 };
+            int desiredRank = FormalityScale.RankOfFormalityLevel(f);
+            // a per-item formality (gemma3, 1..5) is a finer signal than the Usage label; fall back to
+            int itemRank = FormalityScale.RankOf(candidate);
+            int diff = Math.Abs(itemRank - desiredRank);
+            formalityScore = diff switch { 0 => 1.0, 1 => -0.2, 2 => -0.6, _ => -1.0 };
         }
 
+        double score = 0.0;
         if (styleScore.HasValue && formalityScore.HasValue)
-            return 0.7 * styleScore.Value + 0.3 * formalityScore.Value;
-        if (styleScore.HasValue)
-        {
-            return styleScore;
-        }
-        return formalityScore;
-    }
+            score = 0.7 * styleScore.Value + 0.3 * formalityScore.Value;
+        else if (styleScore.HasValue)
+            score = styleScore.Value;
+        else if (formalityScore.HasValue)
+            score = formalityScore.Value;
 
-    private static bool IsHardMismatch(string target, string usage)
-    {
-        bool U(string s) => usage.Contains(s, StringComparison.OrdinalIgnoreCase);
-
-        if (target.Equals("Formal", StringComparison.OrdinalIgnoreCase))
-            return U("Sports") || U("Lounge");
-        if (target.Equals("Sports", StringComparison.OrdinalIgnoreCase))
-            return U("Formal") || U("Party");
-        if (target.Equals("Party", StringComparison.OrdinalIgnoreCase))
-            return U("Sports");
-        return false;
-    }
-
-    // Higher = dressier. Check "Smart Casual" before "Casual" (substring), likewise Sports.
-    private static int FormalityRank(string usage)
-    {
-        if (usage.Contains("Sports", StringComparison.OrdinalIgnoreCase)) return 0;
-        if (usage.Contains("Smart Casual", StringComparison.OrdinalIgnoreCase)) return 2;
-        if (usage.Contains("Casual", StringComparison.OrdinalIgnoreCase)) return 1;
-        if (usage.Contains("Travel", StringComparison.OrdinalIgnoreCase)) return 1;
-        if (usage.Contains("Party", StringComparison.OrdinalIgnoreCase)) return 3;
-        if (usage.Contains("Ethnic", StringComparison.OrdinalIgnoreCase)) return 3;
-        if (usage.Contains("Formal", StringComparison.OrdinalIgnoreCase)) return 4;
-        return 1;
+        double clamped = Math.Clamp(score, -1.0, 1.0);
+        return Math.Max(0.05, 0.05 + ((clamped + 1.0) / 2.0) * 1.45);
     }
 }

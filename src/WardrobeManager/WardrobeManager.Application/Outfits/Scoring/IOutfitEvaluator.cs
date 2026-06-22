@@ -2,13 +2,12 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.Outfits.Scoring;
 
+// stage 2 of generation: a soft, graded preference signal. Hard feasibility (vetoes) lives in
 public interface IOutfitEvaluator
 {
-    // stable key for looking up a learned weight (falls back to Weight)
+    // stable identifier. Evaluator weights are intentionally static (behaviour learning is layered
     string Name { get; }
 
-    double Weight { get; }
-
-    // score in [-1.0, 1.0]; null abstains (excluded from the weighted average), -1.0 is a hard veto
-    double? Evaluate(ClothingItem candidate, OutfitGenerationContext context);
+    // soft score as a multiplier in [0.05, 1.5]. 1.0 is neutral. A value near 0 acts as a soft veto.
+    double Evaluate(ClothingItem candidate, OutfitGenerationContext context);
 }

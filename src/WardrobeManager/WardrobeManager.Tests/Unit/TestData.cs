@@ -3,7 +3,7 @@ using WardrobeManager.Domain.Enums;
 
 namespace WardrobeManager.Tests.Unit;
 
-// Small builders so tests state only the fields they care about.
+// small builders so tests state only the fields they care about.
 internal static class TestData
 {
     public static ClothingItem Item(

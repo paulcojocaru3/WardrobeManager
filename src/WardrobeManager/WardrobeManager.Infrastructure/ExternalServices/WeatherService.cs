@@ -31,23 +31,60 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
         var temp = response.Main.Temp;
         var firstWeather = response.Weather.FirstOrDefault();
         string condition;
+        string? conditionDetail = null;
         if (firstWeather != null)
         {
             condition = firstWeather.Main;
+            conditionDetail = firstWeather.Description;
         }
         else
         {
             condition = "Unknown";
         }
-        
-        var seasonSuggestion = MapTempToSeason(temp);
 
-        var result = new WeatherData(temp, condition, seasonSuggestion);
-        
-        // Cache for 30 minutes
+        var seasonSuggestion = MapTempToSeason(temp);
+        var rainChance = await GetRainChanceAsync(city, condition, ct);
+
+        var result = new WeatherData(
+            temp,
+            condition,
+            seasonSuggestion,
+            FeelsLike: response.Main.FeelsLike,
+            RainChance: rainChance,
+            PrecipitationMm: response.Rain?.OneHour,
+            Humidity: response.Main.Humidity,
+            WindSpeedMs: response.Wind?.Speed,
+            ConditionDetail: conditionDetail);
+
+        // cache for 30 minutes
         cache.Set(cacheKey, result, TimeSpan.FromMinutes(30));
-        
+
         return result;
+    }
+
+    // best-effort chance-of-rain (%). The current-weather endpoint has no probability, so we read the
+    private async Task<int> GetRainChanceAsync(string city, string condition, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"https://api.openweathermap.org/data/2.5/forecast?q={city}&cnt=1&appid={_apiKey}&units=metric";
+            var forecast = await httpClient.GetFromJsonAsync<OpenWeatherPopResponse>(url, ct);
+            var pop = forecast?.List?.FirstOrDefault()?.Pop;
+            if (pop.HasValue) return (int)Math.Round(Math.Clamp(pop.Value, 0f, 1f) * 100);
+        }
+        catch
+        {
+            // fall through to the condition-based estimate
+        }
+
+        if (condition.Contains("Thunderstorm", StringComparison.OrdinalIgnoreCase) ||
+            condition.Contains("Rain", StringComparison.OrdinalIgnoreCase) ||
+            condition.Contains("Drizzle", StringComparison.OrdinalIgnoreCase) ||
+            condition.Contains("Snow", StringComparison.OrdinalIgnoreCase))
+            return 80;
+        if (condition.Contains("Cloud", StringComparison.OrdinalIgnoreCase))
+            return 20;
+        return 0;
     }
 
     public async Task<List<CitySuggestion>> SearchCitiesAsync(string query, CancellationToken ct = default)
@@ -76,7 +113,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
                 result = new List<CitySuggestion>();
             }
             
-            // Cache for 24 hours since city names don't change
+            // cache for 24 hours since city names don't change
             cache.Set(cacheKey, result, TimeSpan.FromHours(24));
             
             return result;
@@ -99,8 +136,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
 
     public async Task<List<DailyForecast>> GetForecastAsync(string city, int days, DateTime? startDate = null, CancellationToken ct = default)
     {
-        // Clamp the user-supplied day count: the daily API serves at most 16 days,
-        // and bounding it keeps the loop below from being driven by untrusted input.
+        // clamp the user-supplied day count: the daily API serves at most 16 days,
         if (days < 1)
         {
             days = 1;
@@ -131,7 +167,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
             return cachedForecast!;
         }
 
-        // Use daily 16-day forecast API
+        // use daily 16-day forecast API
         var forecastUrl = $"https://api.openweathermap.org/data/2.5/forecast/daily?q={city}&cnt={days}&appid={_apiKey}&units=metric";
         var response = await httpClient.GetFromJsonAsync<OpenWeatherDailyForecastResponse>(forecastUrl, ct);
         
@@ -145,7 +181,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
         {
             var targetDate = start.AddDays(i);
             
-            // Find forecast by matching the date (dt is a Unix timestamp in UTC)
+            // find forecast by matching the date (dt is a Unix timestamp in UTC)
             var forecast = response.List.FirstOrDefault(x => DateTimeOffset.FromUnixTimeSeconds(x.Dt).Date == targetDate);
             
             if (forecast != null)
@@ -170,7 +206,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
             }
             else
             {
-                // If no forecast available for this date, use the last available
+                // if no forecast available for this date, use the last available
                 var lastForecast = response.List.LastOrDefault();
 
                 float fallbackTemp;
@@ -197,7 +233,7 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
             }
         }
 
-        // Cache for 3 hours
+        // cache for 3 hours
         cache.Set(cacheKey, result, TimeSpan.FromHours(3));
 
         return result;
@@ -214,17 +250,56 @@ public sealed class WeatherService(HttpClient httpClient, IConfiguration configu
     {
         public MainData Main { get; set; } = null!;
         public List<WeatherInfo> Weather { get; set; } = null!;
+
+        [System.Text.Json.Serialization.JsonPropertyName("wind")]
+        public WindData? Wind { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("rain")]
+        public RainData? Rain { get; set; }
     }
 
-    private class MainData 
-    { 
+    private class MainData
+    {
         [System.Text.Json.Serialization.JsonPropertyName("temp")]
-        public float Temp { get; set; } 
+        public float Temp { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("feels_like")]
+        public float? FeelsLike { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("humidity")]
+        public int? Humidity { get; set; }
     }
-    private class WeatherInfo 
-    { 
+    private class WeatherInfo
+    {
         [System.Text.Json.Serialization.JsonPropertyName("main")]
-        public string Main { get; set; } = null!; 
+        public string Main { get; set; } = null!;
+
+        [System.Text.Json.Serialization.JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    private class WindData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("speed")]
+        public float? Speed { get; set; }
+    }
+
+    private class RainData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("1h")]
+        public float? OneHour { get; set; }
+    }
+
+    private class OpenWeatherPopResponse
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("list")]
+        public List<PopItem>? List { get; set; }
+    }
+
+    private class PopItem
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("pop")]
+        public float? Pop { get; set; }
     }
 
     private class OpenWeatherDailyForecastResponse

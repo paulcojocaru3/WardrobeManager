@@ -12,12 +12,9 @@ public record RecordOutfitFeedbackCommand(Guid UserId, Guid GenerationId, List<O
 
 public sealed class RecordOutfitFeedbackCommandHandler(
     IOutfitFeedbackRepository feedbackRepository,
-    IUserEvaluatorWeightsRepository weightsRepository,
-    IWeightLearningService weightLearningService,
+    IFeedbackLearningCoordinator learningCoordinator,
     ILogger<RecordOutfitFeedbackCommandHandler> logger) : IRequestHandler<RecordOutfitFeedbackCommand, bool>
 {
-    private const int RetrainEvery = 8; // retrain once this many new labels accumulate
-
     public async Task<bool> Handle(RecordOutfitFeedbackCommand request, CancellationToken ct)
     {
         foreach (var item in request.Items)
@@ -26,26 +23,11 @@ public sealed class RecordOutfitFeedbackCommandHandler(
                 await feedbackRepository.RecordActionAsync(request.UserId, request.GenerationId, item.ClothingItemId, action, ct);
         }
 
-        var labeled = await feedbackRepository.CountActionableAsync(request.UserId, ct);
-        var weights = await weightsRepository.GetByUserIdAsync(request.UserId, ct);
-        int trainedOn;
-        if (weights != null)
+        // best-effort: a learning failure must never break feedback recording.
+        try { await learningCoordinator.LearnFromGenerationAsync(request.UserId, request.GenerationId, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            trainedOn = weights.TrainedOnSamples;
-        }
-        else
-        {
-            trainedOn = 0;
-        }
-
-        if (labeled - trainedOn >= RetrainEvery)
-        {
-            // Best-effort: a training failure must never break feedback recording.
-            try { await weightLearningService.RetrainAsync(request.UserId, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Weight retraining failed for user {UserId}.", request.UserId);
-            }
+            logger.LogWarning(ex, "Behaviour learning failed for user {UserId}.", request.UserId);
         }
 
         return true;

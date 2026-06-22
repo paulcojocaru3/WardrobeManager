@@ -9,7 +9,7 @@ public sealed class EventItineraryDto
     public DateTime Date { get; set; }
     public string Moment { get; set; } = string.Empty;
     public float? StoredTemperature { get; set; }
-    public OutfitDto Outfit { get; set; } = null!;
+    public OutfitDto? Outfit { get; set; }
 }
 
 public sealed class PlannerEventDto
@@ -24,4 +24,5 @@ public sealed class PlannerEventDto
     public DateTime? ArchivedAt { get; set; }
     public List<EventItineraryDto> Itineraries { get; set; } = new();
     public List<string> PreferredStyles { get; set; } = new();
+    public int? ReuseAfterDays { get; set; }
 }

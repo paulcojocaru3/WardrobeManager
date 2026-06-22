@@ -25,13 +25,25 @@ public sealed class PlannerEventRepository : IPlannerEventRepository
 
     public async Task<IEnumerable<PlannerEvent>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        // Stays tracked: GetPlannerEventsQueryHandler mutates these (auto-archive) and saves.
+        // stays tracked: GetPlannerEventsQueryHandler mutates these (auto-archive) and saves.
         return await _context.PlannerEvents
             .Include(p => p.Itineraries)
                 .ThenInclude(i => i.Outfit)
                     .ThenInclude(o => o!.Items)
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.StartDate)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PlannerEvent>> GetActiveWithUpcomingItinerariesAsync(DateTime fromDateUtc, CancellationToken cancellationToken = default)
+    {
+        var fromDate = fromDateUtc.Date;
+        return await _context.PlannerEvents
+            .AsNoTracking()
+            .Include(p => p.Itineraries)
+            .Where(p => p.Status == "Active"
+                && p.EndDate >= fromDate
+                && p.Itineraries.Any(i => i.Date >= fromDate && i.StoredTemperature.HasValue))
             .ToListAsync(cancellationToken);
     }
 

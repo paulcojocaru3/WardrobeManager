@@ -6,6 +6,9 @@ public interface IPlannerEventRepository
 {
     Task<PlannerEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IEnumerable<PlannerEvent>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    // all users' active events that still have upcoming itineraries with a stored forecast temperature
+    Task<IReadOnlyList<PlannerEvent>> GetActiveWithUpcomingItinerariesAsync(DateTime fromDateUtc, CancellationToken cancellationToken = default);
     Task AddAsync(PlannerEvent plannerEvent, CancellationToken cancellationToken = default);
     Task UpdateAsync(PlannerEvent plannerEvent, CancellationToken cancellationToken = default);
     Task DeleteAsync(PlannerEvent plannerEvent, CancellationToken cancellationToken = default);

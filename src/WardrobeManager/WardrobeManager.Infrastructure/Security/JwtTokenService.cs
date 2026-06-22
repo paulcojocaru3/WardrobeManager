@@ -8,7 +8,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Infrastructure.Security;
 
-// HS256 JWTs; key/issuer/audience/lifetime come from the "Jwt" config section
+// hS256 JWTs; key/issuer/audience/lifetime come from the "Jwt" config section
 public sealed class JwtTokenService(IConfiguration configuration) : IJwtTokenService
 {
     public string GenerateToken(User user)

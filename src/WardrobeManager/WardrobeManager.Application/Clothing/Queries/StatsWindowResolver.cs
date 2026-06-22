@@ -9,10 +9,11 @@ public static class StatsWindowResolver
         "30d",
         "90d",
         "1y",
+        "all-time",
         "custom"
     };
 
-    public static StatsWindowResolution Resolve(string? range, DateTime? customStart, DateTime? customEnd)
+    public static StatsWindowResolution Resolve(string? range, DateTime? customStart, DateTime? customEnd, DateTime? nowUtc = null)
     {
         var normalizedRange = string.IsNullOrWhiteSpace(range)
             ? null
@@ -60,7 +61,7 @@ public static class StatsWindowResolver
             return StatsWindowResolution.Invalid("Range 'custom' requires both customStart and customEnd query parameters.");
         }
 
-        var endDate = DateTime.UtcNow;
+        var endDate = nowUtc ?? DateTime.UtcNow;
         var startDate = normalizedRange switch
         {
             "7d" => endDate.AddDays(-7),

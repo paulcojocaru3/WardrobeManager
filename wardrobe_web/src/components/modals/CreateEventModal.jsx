@@ -1,25 +1,39 @@
-import React from 'react';
 import Modal from '../Modal';
 import Button from '../Button';
 import { USAGES } from '../../constants/wardrobe';
 
-const CreateEventModal = ({ 
+const dayStepper = {
+  display: 'inline-flex', alignItems: 'center', gap: '4px',
+  border: '1px solid var(--border-subtle)', borderRadius: '10px',
+  background: 'var(--bg-soft)', padding: '2px'
+};
+
+const dayStepBtn = {
+  width: '24px', height: '24px', border: 'none', borderRadius: '8px',
+  background: 'transparent', color: 'var(--fg-muted)', cursor: 'pointer',
+  fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center'
+};
+
+const dayStepValue = {
+  minWidth: '26px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, color: 'var(--fg)'
+};
+
+const CreateEventModal = ({
   isOpen, 
   onClose, 
   wizardStep, 
   setWizardStep, 
   wizardPreview, 
-  setWizardPreview, 
   createEventData, 
   setCreateEventData, 
-  eventLocationSearch, 
   setEventLocationSearch, 
   eventLocationSuggestions, 
   setEventLocationSuggestions, 
   onPreviewEvent, 
   onCreatePlannerEvent, 
   wizardLoading, 
-  loading 
+  loading,
+  defaultReuseAfterDays = 3
 }) => {
   return (
     <Modal 
@@ -190,17 +204,72 @@ const CreateEventModal = ({
             </div>
           </div>
           
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)' }}>
+                PACKING REUSE · DEFAULT {defaultReuseAfterDays === null ? 'OFF' : `${defaultReuseAfterDays} DAYS`}
+              </span>
+              <button
+                onClick={() => {
+                  if (createEventData.reuseAfterDays) {
+                    setCreateEventData({...createEventData, reuseAfterDays: null});
+                  } else {
+                    setCreateEventData({...createEventData, reuseAfterDays: defaultReuseAfterDays ?? 3});
+                  }
+                }}
+                style={{
+                  width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                  background: createEventData.reuseAfterDays ? 'var(--accent)' : 'var(--border-muted)',
+                  position: 'relative', transition: 'background 0.2s'
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: '2px',
+                  left: createEventData.reuseAfterDays ? '18px' : '2px',
+                  width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.2s'
+                }} />
+              </button>
+            </div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--fg-muted)', marginBottom: '8px' }}>
+              Allow reusing tops and bottoms after a cooldown period. Shoes, outerwear and accessories can be reused daily.
+            </div>
+            {createEventData.reuseAfterDays && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.65rem', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>Reuse after</span>
+                <div style={dayStepper}>
+                  <button
+                    type="button"
+                    style={dayStepBtn}
+                    onClick={() => setCreateEventData({ ...createEventData, reuseAfterDays: Math.max(2, createEventData.reuseAfterDays - 1) })}
+                  >
+                    −
+                  </button>
+                  <span style={dayStepValue}>{createEventData.reuseAfterDays}</span>
+                  <button
+                    type="button"
+                    style={dayStepBtn}
+                    onClick={() => setCreateEventData({ ...createEventData, reuseAfterDays: Math.min(14, createEventData.reuseAfterDays + 1) })}
+                  >
+                    +
+                  </button>
+                </div>
+                <span style={{ fontSize: '0.65rem', color: 'var(--fg-muted)' }}>days</span>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-            <Button 
-              label="NEXT PREVIEW" 
-              onClick={onPreviewEvent} 
-              loading={wizardLoading} 
-              disabled={!createEventData.name || !createEventData.location || !createEventData.startDate || !createEventData.endDate} 
+            <Button
+              label="NEXT PREVIEW"
+              onClick={onPreviewEvent}
+              loading={wizardLoading}
+              disabled={!createEventData.name || !createEventData.location || !createEventData.startDate || !createEventData.endDate}
             />
-            <Button 
-              label="CANCEL" 
-              variant="secondary" 
-              onClick={onClose} 
+            <Button
+              label="CANCEL"
+              variant="secondary"
+              onClick={onClose}
             />
           </div>
         </div>

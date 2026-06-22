@@ -1,4 +1,3 @@
-import React from 'react';
 import Modal from '../Modal';
 
 const DayPreviewModal = ({ 
@@ -48,7 +47,7 @@ const DayPreviewModal = ({
                       </div>
                       <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
                         <button 
-                          onClick={() => { onWearOutfit(entry.itinerary.outfit.id); onClose(); }} 
+                          onClick={() => { onWearOutfit(entry.itinerary.outfit); onClose(); }}
                           style={{ flex: 2, background: 'var(--accent-bg)', color: 'var(--accent-fg)', border: '1px solid var(--accent)', padding: '12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}
                         >
                           WEAR IT

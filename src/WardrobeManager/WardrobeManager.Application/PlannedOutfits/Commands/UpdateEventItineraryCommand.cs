@@ -51,10 +51,7 @@ public sealed class UpdateEventItineraryCommandHandler : IRequestHandler<UpdateE
             }
         }
 
-        itinerary.OutfitId = request.OutfitId;
-        itinerary.Date = request.Date.Date;
-        itinerary.Moment = request.Moment;
-        itinerary.StoredTemperature = storedTemp;
+        itinerary.UpdateDetails(request.OutfitId, request.Date, request.Moment, storedTemp);
 
         await _plannerEventRepository.UpdateItineraryAsync(itinerary, cancellationToken);
         return true;

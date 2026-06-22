@@ -91,4 +91,22 @@ public sealed class UserPreferencesHandlerTests
 
         Assert.Equal(expected, user.OuterwearTempThreshold);
     }
+
+    [Fact]
+    public async Task SavesAndDisablesDefaultReuseInterval()
+    {
+        var user = OwnedUser();
+
+        await Sut().Handle(new UpdateUserPreferencesCommand(
+            _userId, null, null, null,
+            DefaultReuseAfterDays: 7,
+            UpdateDefaultReuseAfterDays: true), CancellationToken.None);
+        Assert.Equal(7, user.DefaultReuseAfterDays);
+
+        await Sut().Handle(new UpdateUserPreferencesCommand(
+            _userId, null, null, null,
+            DefaultReuseAfterDays: null,
+            UpdateDefaultReuseAfterDays: true), CancellationToken.None);
+        Assert.Null(user.DefaultReuseAfterDays);
+    }
 }

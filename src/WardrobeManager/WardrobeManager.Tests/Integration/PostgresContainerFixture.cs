@@ -7,7 +7,7 @@ namespace WardrobeManager.Tests.Integration;
 
 public sealed class PostgresContainerFixture : IAsyncLifetime
 {
-    // PostgreSqlBuilder's built-in defaults — used to build the in-network connection string.
+    // postgresqlbuilder's built-in defaults — used to build the in-network connection string.
     private const string Database = "postgres";
     private const string Username = "postgres";
     private const string Password = "postgres";

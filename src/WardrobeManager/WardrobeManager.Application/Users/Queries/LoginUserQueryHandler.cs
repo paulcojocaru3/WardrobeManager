@@ -1,4 +1,3 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Users.Dtos;
@@ -8,13 +7,10 @@ namespace WardrobeManager.Application.Users.Queries;
 public sealed class LoginUserQueryHandler(
     IUserRepository userRepository,
     IPasswordHasher passwordHasher,
-    IJwtTokenService jwtTokenService,
-    IValidator<LoginUserQuery> validator) : IRequestHandler<LoginUserQuery, AuthResponse?>
+    IJwtTokenService jwtTokenService) : IRequestHandler<LoginUserQuery, AuthResponse?>
 {
     public async Task<AuthResponse?> Handle(LoginUserQuery request, CancellationToken ct)
     {
-        await validator.ValidateAndThrowAsync(request, ct);
-
         var user = await userRepository.GetByEmailAsync(request.Email, ct);
 
         if (user == null || !passwordHasher.Verify(request.Password, user.PasswordHash))

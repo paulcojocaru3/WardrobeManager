@@ -21,7 +21,7 @@ public sealed class ClothingRepositoryTests
     {
         var userId = await SeedUserAsync();
 
-        // Query along axis 0. Similarity to the query: aligned (1.0) > diagonal (~0.707) > orthogonal (0.0).
+        // query along axis 0. Similarity to the query: aligned (1.0) > diagonal (~0.707) > orthogonal (0.0).
         var aligned = await SeedItemAsync(userId, "aligned", Embed((0, 1f)));
         var diagonal = await SeedItemAsync(userId, "diagonal", Embed((0, 1f), (1, 1f)));
         var orthogonal = await SeedItemAsync(userId, "orthogonal", Embed((1, 1f)));
@@ -38,7 +38,7 @@ public sealed class ClothingRepositoryTests
             new[] { aligned, diagonal, orthogonal },
             results.Select(r => r.Item.Id).ToArray());
 
-        // Similarity is 1 - cosine distance: exact for the aligned/orthogonal items.
+        // similarity is 1 - cosine distance: exact for the aligned/orthogonal items.
         Assert.Equal(1.0, results[0].Similarity, precision: 5);
         Assert.Equal(0.707, results[1].Similarity, precision: 3);
         Assert.Equal(0.0, results[2].Similarity, precision: 5);
@@ -169,7 +169,6 @@ public sealed class ClothingRepositoryTests
             Type = type,
             Gender = gender,
             Embedding = embedding,
-            OriginalImageUrl = "http://img.local/x.png",
         };
 
         await using var context = _fixture.CreateContext();
@@ -178,7 +177,7 @@ public sealed class ClothingRepositoryTests
         return item.Id;
     }
 
-    // Sparse 512-d vector with the given (index, value) components set; rest zero.
+    // sparse 512-d vector with the given (index, value) components set; rest zero.
     private static float[] Embed(params (int Index, float Value)[] components)
     {
         var vector = new float[EmbeddingDims];

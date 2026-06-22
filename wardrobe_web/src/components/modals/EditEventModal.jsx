@@ -1,9 +1,24 @@
-import React from 'react';
 import Modal from '../Modal';
 import Button from '../Button';
 import { USAGES } from '../../constants/wardrobe';
 
-const EditEventModal = ({ 
+const dayStepper = {
+  display: 'inline-flex', alignItems: 'center', gap: '4px',
+  border: '1px solid var(--border-subtle)', borderRadius: '10px',
+  background: 'var(--bg-soft)', padding: '2px'
+};
+
+const dayStepBtn = {
+  width: '24px', height: '24px', border: 'none', borderRadius: '8px',
+  background: 'transparent', color: 'var(--fg-muted)', cursor: 'pointer',
+  fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center'
+};
+
+const dayStepValue = {
+  minWidth: '26px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, color: 'var(--fg)'
+};
+
+const EditEventModal = ({
   isOpen, 
   onClose, 
   editEventData, 
@@ -106,6 +121,59 @@ const EditEventModal = ({
               );
             })}
           </div>
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--fg-faint)' }}>PACK LIGHT MODE</span>
+            <button
+              onClick={() => {
+                if (editEventData.reuseAfterDays) {
+                  setEditEventData({...editEventData, reuseAfterDays: null});
+                } else {
+                  setEditEventData({...editEventData, reuseAfterDays: 3});
+                }
+              }}
+              style={{
+                width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                background: editEventData.reuseAfterDays ? 'var(--accent)' : 'var(--border-muted)',
+                position: 'relative', transition: 'background 0.2s'
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: '2px',
+                left: editEventData.reuseAfterDays ? '18px' : '2px',
+                width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s'
+              }} />
+            </button>
+          </div>
+          <div style={{ fontSize: '0.65rem', color: 'var(--fg-muted)', marginBottom: '8px' }}>
+            Allow reusing tops and bottoms after a cooldown period. Shoes, outerwear and accessories can be reused daily.
+          </div>
+          {editEventData.reuseAfterDays && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '0.65rem', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>Reuse after</span>
+              <div style={dayStepper}>
+                <button
+                  type="button"
+                  style={dayStepBtn}
+                  onClick={() => setEditEventData({ ...editEventData, reuseAfterDays: Math.max(2, editEventData.reuseAfterDays - 1) })}
+                >
+                  −
+                </button>
+                <span style={dayStepValue}>{editEventData.reuseAfterDays}</span>
+                <button
+                  type="button"
+                  style={dayStepBtn}
+                  onClick={() => setEditEventData({ ...editEventData, reuseAfterDays: Math.min(14, editEventData.reuseAfterDays + 1) })}
+                >
+                  +
+                </button>
+              </div>
+              <span style={{ fontSize: '0.65rem', color: 'var(--fg-muted)' }}>days</span>
+            </div>
+          )}
         </div>
         
         <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>

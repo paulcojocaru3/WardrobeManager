@@ -10,5 +10,12 @@ public record UpdateUserPreferencesCommand(
     string? PreferredCity,
     string? ThemePreference,
     string? OuterwearMode = null,
-    int? OuterwearTempThreshold = null
+    int? OuterwearTempThreshold = null,
+    List<string>? AvoidColors = null,
+    string? VarietyLevel = null,
+    bool? BlockDuplicateUploads = null,
+    bool? PreferLightOnHotDays = null,
+    bool? UseGemmaStylistForOutfits = null,
+    int? DefaultReuseAfterDays = null,
+    bool UpdateDefaultReuseAfterDays = false
 ) : IRequest<UserDto>;

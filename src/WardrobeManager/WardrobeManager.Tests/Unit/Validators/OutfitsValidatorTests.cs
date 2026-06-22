@@ -37,7 +37,7 @@ public sealed class UpdateOutfitCommandValidatorTests
 {
     private readonly UpdateOutfitCommandValidator _sut = new();
     private static UpdateOutfitCommand Valid()
-        => new(Guid.NewGuid(), "Updated Look", new List<Guid> { Guid.NewGuid() });
+        => new(Guid.NewGuid(), Guid.NewGuid(), "Updated Look", new List<Guid> { Guid.NewGuid() });
 
     [Fact]
     public void Passes_ForValidCommand() => _sut.TestValidate(Valid()).ShouldNotHaveAnyValidationErrors();
@@ -45,6 +45,10 @@ public sealed class UpdateOutfitCommandValidatorTests
     [Fact]
     public void Fails_WhenIdEmpty()
         => _sut.TestValidate(Valid() with { Id = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.Id);
+
+    [Fact]
+    public void Fails_WhenUserIdEmpty()
+        => _sut.TestValidate(Valid() with { UserId = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.UserId);
 
     [Fact]
     public void Fails_WhenNameEmpty()
@@ -76,11 +80,15 @@ public sealed class DeleteOutfitCommandValidatorTests
 
     [Fact]
     public void Passes_ForValidId()
-        => _sut.TestValidate(new DeleteOutfitCommand(Guid.NewGuid())).ShouldNotHaveAnyValidationErrors();
+        => _sut.TestValidate(new DeleteOutfitCommand(Guid.NewGuid(), Guid.NewGuid())).ShouldNotHaveAnyValidationErrors();
 
     [Fact]
     public void Fails_WhenIdEmpty()
-        => _sut.TestValidate(new DeleteOutfitCommand(Guid.Empty)).ShouldHaveValidationErrorFor(x => x.Id);
+        => _sut.TestValidate(new DeleteOutfitCommand(Guid.NewGuid(), Guid.Empty)).ShouldHaveValidationErrorFor(x => x.Id);
+
+    [Fact]
+    public void Fails_WhenUserIdEmpty()
+        => _sut.TestValidate(new DeleteOutfitCommand(Guid.Empty, Guid.NewGuid())).ShouldHaveValidationErrorFor(x => x.UserId);
 }
 
 [Trait("Category", "Unit")]
@@ -123,26 +131,4 @@ public sealed class GenerateAiOutfitCommandValidatorTests
     [InlineData(1.1)]
     public void Fails_WhenThresholdOutOfRange(double threshold)
         => _sut.TestValidate(Valid() with { Threshold = threshold }).ShouldHaveValidationErrorFor(x => x.Threshold);
-}
-
-[Trait("Category", "Unit")]
-public sealed class GenerateOutfitFromPromptCommandValidatorTests
-{
-    private readonly GenerateOutfitFromPromptCommandValidator _sut = new();
-    private static GenerateOutfitFromPromptCommand Valid() => new(Guid.NewGuid(), "something smart for dinner");
-
-    [Fact]
-    public void Passes_ForValidCommand() => _sut.TestValidate(Valid()).ShouldNotHaveAnyValidationErrors();
-
-    [Fact]
-    public void Fails_WhenUserIdEmpty()
-        => _sut.TestValidate(Valid() with { UserId = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.UserId);
-
-    [Fact]
-    public void Fails_WhenPromptEmpty()
-        => _sut.TestValidate(Valid() with { Prompt = "" }).ShouldHaveValidationErrorFor(x => x.Prompt);
-
-    [Fact]
-    public void Fails_WhenPromptTooLong()
-        => _sut.TestValidate(Valid() with { Prompt = new string('x', 1001) }).ShouldHaveValidationErrorFor(x => x.Prompt);
 }

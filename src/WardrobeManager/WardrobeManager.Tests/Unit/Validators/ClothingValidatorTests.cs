@@ -68,11 +68,15 @@ public sealed class DeleteClothingCommandValidatorTests
 
     [Fact]
     public void Passes_ForValidId()
-        => _sut.TestValidate(new DeleteClothingCommand(Guid.NewGuid())).ShouldNotHaveAnyValidationErrors();
+        => _sut.TestValidate(new DeleteClothingCommand(Guid.NewGuid(), Guid.NewGuid())).ShouldNotHaveAnyValidationErrors();
 
     [Fact]
     public void Fails_WhenIdEmpty()
-        => _sut.TestValidate(new DeleteClothingCommand(Guid.Empty)).ShouldHaveValidationErrorFor(x => x.Id);
+        => _sut.TestValidate(new DeleteClothingCommand(Guid.NewGuid(), Guid.Empty)).ShouldHaveValidationErrorFor(x => x.Id);
+
+    [Fact]
+    public void Fails_WhenUserIdEmpty()
+        => _sut.TestValidate(new DeleteClothingCommand(Guid.Empty, Guid.NewGuid())).ShouldHaveValidationErrorFor(x => x.UserId);
 }
 
 [Trait("Category", "Unit")]

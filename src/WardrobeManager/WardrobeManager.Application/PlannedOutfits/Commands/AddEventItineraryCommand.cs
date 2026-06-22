@@ -13,13 +13,20 @@ public sealed class AddEventItineraryCommandHandler : IRequestHandler<AddEventIt
     private readonly IOutfitRepository _outfitRepository;
     private readonly IWeatherService _weatherService;
     private readonly ILogger<AddEventItineraryCommandHandler> _logger;
+    private readonly TimeProvider _clock;
 
-    public AddEventItineraryCommandHandler(IPlannerEventRepository plannerEventRepository, IOutfitRepository outfitRepository, IWeatherService weatherService, ILogger<AddEventItineraryCommandHandler> logger)
+    public AddEventItineraryCommandHandler(
+        IPlannerEventRepository plannerEventRepository,
+        IOutfitRepository outfitRepository,
+        IWeatherService weatherService,
+        ILogger<AddEventItineraryCommandHandler> logger,
+        TimeProvider? clock = null)
     {
         _plannerEventRepository = plannerEventRepository;
         _outfitRepository = outfitRepository;
         _weatherService = weatherService;
         _logger = logger;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Guid> Handle(AddEventItineraryCommand request, CancellationToken cancellationToken)
@@ -38,14 +45,13 @@ public sealed class AddEventItineraryCommandHandler : IRequestHandler<AddEventIt
 
         var storedTemp = await EventForecastHelper.TryGetTemperatureAsync(_weatherService, _logger, plannerEvent, request.Date, cancellationToken);
 
-        var itinerary = new EventItinerary
-        {
-            PlannerEventId = request.PlannerEventId,
-            OutfitId = request.OutfitId,
-            Date = request.Date.Date,
-            Moment = request.Moment,
-            StoredTemperature = storedTemp
-        };
+        var itinerary = EventItinerary.Create(
+            request.PlannerEventId,
+            request.OutfitId,
+            request.Date,
+            request.Moment,
+            storedTemp,
+            _clock.GetUtcNow().UtcDateTime);
 
         await _plannerEventRepository.AddItineraryAsync(itinerary, cancellationToken);
 

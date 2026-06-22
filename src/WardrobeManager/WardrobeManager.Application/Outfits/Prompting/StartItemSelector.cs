@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
+using WardrobeManager.Application.Outfits.Feasibility;
+using WardrobeManager.Application.Outfits.Scoring;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Domain.Enums;
 
@@ -8,18 +10,19 @@ namespace WardrobeManager.Application.Outfits.Prompting;
 public sealed class StartItemSelector(
     IClothingRepository clothingRepository,
     IMlService mlService,
+    IGarmentFeasibility feasibility,
     ILogger<StartItemSelector> logger) : IStartItemSelector
 {
     public async Task<ClothingItem?> SelectAsync(Guid userId, PromptIntent intent, IReadOnlyCollection<Guid>? excludedItemIds = null, WeatherData? weather = null, CancellationToken ct = default)
     {
-        // A specific garment named in the prompt anchors the seed; its sub-type hard-filters the pool.
+        // a specific garment named in the prompt anchors the seed; its sub-type hard-filters the pool.
         RequestedGarment? seedGarment = null;
         if (intent.RequestedGarments.Count > 0)
         {
             seedGarment = intent.RequestedGarments[0];
         }
 
-        // Generic words ("top"/"pants"/"shoes") fix only the type, not the sub-type — don't hard-filter on them.
+        // generic words ("top"/"pants"/"shoes") fix only the type, not the sub-type — don't hard-filter on them.
         string? seedSubType = null;
         if (seedGarment != null && !GarmentVocabulary.IsGenericSubType(seedGarment.SubType))
             seedSubType = seedGarment.SubType;
@@ -30,8 +33,7 @@ public sealed class StartItemSelector(
             preferredType = intent.RequestedTypes[0];
         }
 
-        // Colors that constrain the SEED's slot specifically (e.g. "black pants" -> the bottom seed
-        // must be black); fall back to the outfit-level colors when the seed type has no per-slot spec.
+        // colors that constrain the SEED's slot specifically (e.g. "black pants" -> the bottom seed
         var (seedDesired, seedAvoid) = ResolveSeedColors(intent, preferredType);
 
         string? queryText = BuildQueryText(intent, seedDesired);
@@ -47,11 +49,11 @@ public sealed class StartItemSelector(
 
             if (vector.Length > 0)
             {
-                // Visual ranking: top candidates by cosine similarity within the requested type.
+                // visual ranking: top candidates by cosine similarity within the requested type.
                 var pool = await clothingRepository.GetSimilarItemsAsync(
                     userId, vector, preferredType, limit: 20, threshold: null, ct: ct);
 
-                // If nothing in that type, retry across all types.
+                // if nothing in that type, retry across all types.
                 if (pool.Count == 0 && preferredType.HasValue)
                     pool = await clothingRepository.GetSimilarItemsAsync(
                         userId, vector, null, limit: 20, threshold: null, ct: ct);
@@ -66,11 +68,11 @@ public sealed class StartItemSelector(
                     if (bySubType.Count > 0) pool = bySubType;
                 }
 
-                var allowed = pool.Where(p => !IsContextVetoed(p.Item, intent, seedAvoid, weather)).ToList();
+                var seedContext = BuildSeedContext(intent, seedAvoid, weather);
+                var allowed = pool.Where(p => feasibility.Check(p.Item, seedContext).IsFeasible).ToList();
                 if (allowed.Count > 0) pool = allowed;
 
-                // On regeneration ("Generate another"), push seeds most visually different from the
-                // ones already shown to the front, so the new top isn't a near-duplicate.
+                // on regeneration ("Generate another"), push seeds most visually different from the
                 if (excludedItemIds is { Count: > 0 } && pool.Count > 0)
                     pool = await DiversifyAgainstAsync(pool, excludedItemIds, ct);
 
@@ -90,8 +92,7 @@ public sealed class StartItemSelector(
         return await FallbackSelectAsync(userId, intent, preferredType, seedSubType, seedDesired, seedAvoid, excludedItemIds, weather, ct);
     }
 
-    // Per-slot colors for the seed's clothing type, or the outfit-level colors when the seed type
-    // carries no per-garment spec. A named garment's colors fully describe its slot.
+    // per-slot colors for the seed's clothing type, or the outfit-level colors when the seed type
     private static (IReadOnlyList<string> Desired, IReadOnlyList<string> Avoid) ResolveSeedColors(
         PromptIntent intent, ClothingType? seedType)
     {
@@ -108,8 +109,7 @@ public sealed class StartItemSelector(
         List<(ClothingItem Item, double Similarity)> pool, IReadOnlyCollection<Guid>? excluded)
         => excluded is { Count: > 0 } ? pool.Where(p => !excluded.Contains(p.Item.Id)).ToList() : pool;
 
-    // Re-rank so items most dissimilar to the already-shown seeds come first (diversity on
-    // regeneration); equal-diversity items keep the original prompt-relevance order.
+    // re-rank so items most dissimilar to the already-shown seeds come first (diversity on
     private async Task<List<(ClothingItem Item, double Similarity)>> DiversifyAgainstAsync(
         List<(ClothingItem Item, double Similarity)> pool, IReadOnlyCollection<Guid> excludedIds, CancellationToken ct)
     {
@@ -148,8 +148,7 @@ public sealed class StartItemSelector(
         return dot / (Math.Sqrt(na) * Math.Sqrt(nb));
     }
 
-    // Default seed-style preference when the prompt names no style: lower = picked first.
-    // Casual -> Smart Casual -> Sports -> Travel -> Party -> Ethnic -> Formal (last); unknown last.
+    // default seed-style preference when the prompt names no style: lower = picked first.
     private static int StylePriority(string? usage)
     {
         if (string.IsNullOrWhiteSpace(usage)) return 100;
@@ -176,7 +175,7 @@ public sealed class StartItemSelector(
         bool MatchesColor((ClothingItem Item, double Similarity) p) =>
             p.Item.Color != null && desiredColors.Any(dc => p.Item.Color.Contains(dc, StringComparison.OrdinalIgnoreCase));
 
-        // A piece is "mono-color" for this request if it carries exactly one of the asked colors.
+        // a piece is "mono-color" for this request if it carries exactly one of the asked colors.
         int DesiredColorCount((ClothingItem Item, double Similarity) p) =>
             p.Item.Color == null ? 0 : desiredColors.Count(dc => p.Item.Color.Contains(dc, StringComparison.OrdinalIgnoreCase));
         bool MatchesOneColor((ClothingItem Item, double Similarity) p) => DesiredColorCount(p) == 1;
@@ -186,7 +185,7 @@ public sealed class StartItemSelector(
         // 1. Best: matches the requested style AND a requested color.
         if (hasStyle && hasColors)
         {
-            // With several requested colors, prefer a single-color piece so the palette spreads across the outfit.
+            // with several requested colors, prefer a single-color piece so the palette spreads across the outfit.
             if (multipleColors)
             {
                 var styledMono = pool.FirstOrDefault(p => MatchesStyle(p) && MatchesOneColor(p));
@@ -204,7 +203,6 @@ public sealed class StartItemSelector(
         }
 
         // 2b. No style asked -> default preference: casual first ... formal last (honoring colors,
-        // and a single-color piece when several colors were requested).
         if (!hasStyle)
         {
             var pick = pool
@@ -235,21 +233,24 @@ public sealed class StartItemSelector(
 
     private static string? BuildQueryText(PromptIntent intent, IReadOnlyList<string> desiredColors)
     {
-        // An explicitly described garment is the strongest anchor.
+        // soft attributes (sleeve/material/fit) the LLM may have left out of the phrase.
+        var attributes = intent.Attributes;
+
+        // an explicitly described garment is the strongest anchor.
         if (!string.IsNullOrWhiteSpace(intent.AnchorDescription))
         {
             var anchor = intent.AnchorDescription!.Trim();
-            // Fold in any requested colors the model left out of the phrase.
-            var missing = desiredColors
-                .Where(c => !anchor.Contains(c, StringComparison.OrdinalIgnoreCase))
+            // fold in any requested colors / attributes the model left out of the phrase.
+            var prefix = desiredColors.Concat(attributes)
+                .Where(t => !anchor.Contains(t, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            return missing.Count > 0 ? $"{string.Join(" ", missing)} {anchor}" : anchor;
+            return prefix.Count > 0 ? $"{string.Join(" ", prefix)} {anchor}" : anchor;
         }
 
         var parts = new List<string>();
-        // Anchor the seed on the primary color only; concatenating several colors (e.g. "white black")
-        // biases the CLIP text match toward one garment that already carries all of them.
+        // anchor the seed on the primary color only; concatenating several colors (e.g. "white black")
         if (desiredColors.Count > 0) parts.Add(desiredColors[0]);
+        parts.AddRange(attributes);
         if (!string.IsNullOrWhiteSpace(intent.Style)) parts.Add(intent.Style!);
         if (!string.IsNullOrWhiteSpace(intent.Occasion)) parts.Add(intent.Occasion!);
 
@@ -272,11 +273,12 @@ public sealed class StartItemSelector(
 
         IEnumerable<ClothingItem> pool = available;
 
-        // Same hard-veto filter as the embedding path (weather / avoided colors / clashing style).
-        var allowed = pool.Where(c => !IsContextVetoed(c, intent, seedAvoid, weather)).ToList();
+        // same hard-veto filter as the embedding path, via the shared feasibility module.
+        var seedContext = BuildSeedContext(intent, seedAvoid, weather);
+        var allowed = pool.Where(c => feasibility.Check(c, seedContext).IsFeasible).ToList();
         if (allowed.Count > 0) pool = allowed;
 
-        // Prefer the exact requested sub-type when the wardrobe has it (graceful otherwise).
+        // prefer the exact requested sub-type when the wardrobe has it (graceful otherwise).
         if (!string.IsNullOrWhiteSpace(seedSubType))
         {
             var bySubType = pool.Where(c => string.Equals(c.SubType, seedSubType, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -301,64 +303,28 @@ public sealed class StartItemSelector(
         var list = pool.ToList();
         if (list.Count == 0) list = available;
 
-        // On regeneration, reorder so the item most visually different from the shown seeds is first
-        // (otherwise the fallback just walks the wardrobe in CreatedAt order = the "sequential" bug).
+        // on regeneration, reorder so the item most visually different from the shown seeds is first
         if (excludedItemIds is { Count: > 0 } && list.Count > 1)
             list = await DiversifyItemsAsync(list, excludedItemIds, ct);
 
-        // No style asked -> default preference order (casual first, formal last).
+        // no style asked -> default preference order (casual first, formal last).
         if (string.IsNullOrWhiteSpace(intent.Style))
             return list.OrderBy(c => StylePriority(c.Usage)).First();
 
-        // Most recent wins (or most-different on regeneration).
+        // most recent wins (or most-different on regeneration).
         return list.First();
     }
 
-    // True when the outfit context would hard-veto this item as a seed (mirrors the evaluators'
-    // veto rules), so it never gets picked and then scored -1.
-    private static bool IsContextVetoed(ClothingItem item, PromptIntent intent, IReadOnlyList<string> avoidColors, WeatherData? weather)
-    {
-        if (weather != null && IsWeatherVetoed(item, weather)) return true;
+    // minimal context for seed feasibility: weather + avoided colors + hard style clash. No gender lock
+    private static OutfitGenerationContext BuildSeedContext(
+        PromptIntent intent, IReadOnlyList<string> avoidColors, WeatherData? weather) => new()
+        {
+            TargetStyle = intent.Style,
+            AvoidColors = avoidColors,
+            Weather = weather
+        };
 
-        if (avoidColors.Count > 0 && item.Color != null &&
-            avoidColors.Any(a => item.Color.Contains(a, StringComparison.OrdinalIgnoreCase)))
-            return true;
-
-        if (!string.IsNullOrWhiteSpace(intent.Style) && item.Usage != null &&
-            IsHardStyleMismatch(intent.Style!, item.Usage))
-            return true;
-
-        return false;
-    }
-
-    // Mirrors WeatherEvaluator's hard vetoes: no warm-only garments when freezing, no winter items
-    // when hot.
-    private static bool IsWeatherVetoed(ClothingItem item, WeatherData weather)
-    {
-        var subType = item.SubType ?? "";
-        var name = item.Name ?? "";
-        bool warmOnly = subType is "shorts" or "sandals" or "flip flops"
-            || name.Contains("shorts", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("sandals", StringComparison.OrdinalIgnoreCase);
-        if (weather.Temperature < 10 && warmOnly) return true;
-
-        var season = item.Season ?? "";
-        if (weather.Temperature > 22 && season.Contains("Winter", StringComparison.OrdinalIgnoreCase)) return true;
-
-        return false;
-    }
-
-    // Mirrors StyleEvaluator.IsHardMismatch.
-    private static bool IsHardStyleMismatch(string target, string usage)
-    {
-        bool U(string s) => usage.Contains(s, StringComparison.OrdinalIgnoreCase);
-        if (target.Equals("Formal", StringComparison.OrdinalIgnoreCase)) return U("Sports") || U("Lounge");
-        if (target.Equals("Sports", StringComparison.OrdinalIgnoreCase)) return U("Formal") || U("Party");
-        if (target.Equals("Party", StringComparison.OrdinalIgnoreCase)) return U("Sports");
-        return false;
-    }
-
-    // List<ClothingItem> variant of the diversity re-rank used by the fallback path.
+    // list<ClothingItem> variant of the diversity re-rank used by the fallback path.
     private async Task<List<ClothingItem>> DiversifyItemsAsync(
         List<ClothingItem> items, IReadOnlyCollection<Guid> excludedIds, CancellationToken ct)
     {

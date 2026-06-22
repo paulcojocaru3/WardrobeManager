@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.PlannedOutfits.Commands;
-using WardrobeManager.Application.PlannedOutfits.Validators;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Tests.Unit.Handlers;
@@ -25,7 +24,7 @@ public sealed class PlannerCommandHandlerTests
     [Fact]
     public async Task Create_PersistsEvent_WithActiveStatus()
     {
-        var sut = new CreatePlannerEventCommandHandler(_planner, new CreatePlannerEventCommandValidator());
+        var sut = new CreatePlannerEventCommandHandler(_planner);
         var cmd = new CreatePlannerEventCommand(_userId, "Trip", "Vacation", "Rome",
             DateTime.UtcNow.Date, DateTime.UtcNow.Date.AddDays(1), new List<string>());
 
@@ -41,7 +40,7 @@ public sealed class PlannerCommandHandlerTests
     {
         var ev = OwnedEvent();
         _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
-        var sut = new UpdatePlannerEventCommandHandler(_planner, new UpdatePlannerEventCommandValidator());
+        var sut = new UpdatePlannerEventCommandHandler(_planner);
         var cmd = new UpdatePlannerEventCommand(_userId, ev.Id, "Renamed", "Wedding", "Paris",
             DateTime.UtcNow.Date, DateTime.UtcNow.Date.AddDays(1), new List<string> { "Formal" });
 
@@ -55,7 +54,7 @@ public sealed class PlannerCommandHandlerTests
     {
         var ev = new PlannerEvent { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Type = "y", Location = "z" };
         _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
-        var sut = new UpdatePlannerEventCommandHandler(_planner, new UpdatePlannerEventCommandValidator());
+        var sut = new UpdatePlannerEventCommandHandler(_planner);
         var cmd = new UpdatePlannerEventCommand(_userId, ev.Id, "n", "t", "l",
             DateTime.UtcNow.Date, DateTime.UtcNow.Date, new List<string>());
 
@@ -68,7 +67,7 @@ public sealed class PlannerCommandHandlerTests
     {
         var ev = OwnedEvent();
         _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
-        var sut = new ArchivePlannerEventCommandHandler(_planner, new ArchivePlannerEventCommandValidator());
+        var sut = new ArchivePlannerEventCommandHandler(_planner);
 
         Assert.True(await sut.Handle(new ArchivePlannerEventCommand(_userId, ev.Id), CancellationToken.None));
         Assert.Equal("Archived", ev.Status);
@@ -78,7 +77,7 @@ public sealed class PlannerCommandHandlerTests
     public async Task Archive_ReturnsFalse_WhenMissing()
     {
         _planner.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PlannerEvent?)null);
-        var sut = new ArchivePlannerEventCommandHandler(_planner, new ArchivePlannerEventCommandValidator());
+        var sut = new ArchivePlannerEventCommandHandler(_planner);
         Assert.False(await sut.Handle(new ArchivePlannerEventCommand(_userId, Guid.NewGuid()), CancellationToken.None));
     }
 

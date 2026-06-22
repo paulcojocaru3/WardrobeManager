@@ -13,26 +13,30 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
     private readonly IWearEventRepository _wearRepository;
     private readonly IClothingRepository _clothingRepository;
     private readonly IOutfitRepository _outfitRepository;
+    private readonly TimeProvider _clock;
 
     public GetWearStatisticsQueryHandler(
         IWearEventRepository wearRepository, 
         IClothingRepository clothingRepository,
-        IOutfitRepository outfitRepository)
+        IOutfitRepository outfitRepository,
+        TimeProvider? clock = null)
     {
         _wearRepository = wearRepository;
         _clothingRepository = clothingRepository;
         _outfitRepository = outfitRepository;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<WearStatisticsDto> Handle(GetWearStatisticsQuery request, CancellationToken ct)
     {
-        var window = StatsWindowResolver.Resolve(request.Range, request.CustomStart, request.CustomEnd);
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var window = StatsWindowResolver.Resolve(request.Range, request.CustomStart, request.CustomEnd, now);
         if (!window.IsValid)
         {
             throw new ValidationException(new[] { new ValidationFailure("range", window.Error!) });
         }
 
-        // Push the date window to SQL when bounded; only fetch the full history for "all time".
+        // push the date window to SQL when bounded; only fetch the full history for "all time".
         IEnumerable<WearEvent> events;
         if (window.StartUtc.HasValue && window.EndUtc.HasValue)
         {
@@ -56,7 +60,7 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
         dto.TotalDistinctWornItems = filteredEvents.Select(e => e.ClothingItemId).Distinct().Count();
         dto.ActiveDays = filteredEvents.Select(e => e.WearDate.Date).Distinct().Count();
 
-        dto.Streak = BuildStreakStats(sessionGroups.Select(g => g.SessionDate));
+        dto.Streak = BuildStreakStats(sessionGroups.Select(g => g.SessionDate), now.Date);
         dto.OutfitSourceSplit = BuildOutfitSourceSplit(sessionGroups, allOutfits);
         dto.CategoryUtilization = BuildCategoryUtilization(filteredEvents, allClothes);
 
@@ -72,14 +76,14 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
         dto.TopWornItems = itemCounts
             .OrderByDescending(x => x.Count)
             .Take(5)
-            .Select(x => MapToItemUsage(allClothes.FirstOrDefault(c => c.Id == x.Id), x.Count, x.LastWear))
+            .Select(x => MapToItemUsage(allClothes.FirstOrDefault(c => c.Id == x.Id), x.Count, x.LastWear, now))
             .ToList();
 
         dto.UnwornRecently = itemCounts
-            .Where(x => (DateTime.UtcNow - x.LastWear).TotalDays > 30)
-            .OrderByDescending(x => (DateTime.UtcNow - x.LastWear).TotalDays)
+            .Where(x => (now - x.LastWear).TotalDays > 30)
+            .OrderByDescending(x => (now - x.LastWear).TotalDays)
             .Take(5)
-            .Select(x => MapToItemUsage(allClothes.FirstOrDefault(c => c.Id == x.Id), x.Count, x.LastWear))
+            .Select(x => MapToItemUsage(allClothes.FirstOrDefault(c => c.Id == x.Id), x.Count, x.LastWear, now))
             .ToList();
 
         // 2. Color Statistics
@@ -135,7 +139,10 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
                     Id = g.Key, 
                     Name = outfit?.Name ?? "Unnamed Outfit",
                     Count = g.Select(e => e.WearDate.Date).Distinct().Count(),
-                    ItemImages = outfit?.Items.Select(i => i.ProcessedImageUrl).Where(url => url != null).ToList()! ?? new List<string>()
+                    ItemImages = outfit?.Items
+                        .Select(i => i.ProcessedImageUrl)
+                        .OfType<string>()
+                        .ToList() ?? new List<string>()
                 };
             })
             .OrderByDescending(x => x.Count)
@@ -175,7 +182,11 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
                         OutfitId = sessionGroup.First().OutfitId,
                         OutfitName = allOutfits.FirstOrDefault(o => o.Id == sessionGroup.First().OutfitId)?.Name ?? "Custom Look",
                         ExactTime = sessionGroup.Key,
-                        ItemImages = sessionGroup.Where(e => e.ClothingItem != null).Select(e => e.ClothingItem!.ProcessedImageUrl).Where(url => url != null).ToList()!
+                        ItemImages = sessionGroup
+                            .Where(e => e.ClothingItem != null)
+                            .Select(e => e.ClothingItem!.ProcessedImageUrl)
+                            .OfType<string>()
+                            .ToList()
                     })
                     .OrderByDescending(s => s.ExactTime)
                     .ToList()
@@ -190,7 +201,7 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
         return dto;
     }
 
-    private ItemUsageDto MapToItemUsage(ClothingItem? item, int count, DateTime? lastWear)
+    private static ItemUsageDto MapToItemUsage(ClothingItem? item, int count, DateTime? lastWear, DateTime now)
     {
         if (item == null) return new ItemUsageDto();
         return new ItemUsageDto {
@@ -198,7 +209,7 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
             Name = item.Name,
             ImageUrl = item.ProcessedImageUrl,
             Count = count,
-            DaysSinceLastWear = lastWear.HasValue ? (int)(DateTime.UtcNow - lastWear.Value).TotalDays : null
+            DaysSinceLastWear = lastWear.HasValue ? (int)(now - lastWear.Value).TotalDays : null
         };
     }
 
@@ -282,7 +293,7 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
             .ToList();
     }
 
-    private static StreakStatsDto BuildStreakStats(IEnumerable<DateTime> sessionDates)
+    private static StreakStatsDto BuildStreakStats(IEnumerable<DateTime> sessionDates, DateTime today)
     {
         var sortedDistinctDates = sessionDates
             .Select(d => d.Date)
@@ -328,7 +339,6 @@ public sealed class GetWearStatisticsQueryHandler : IRequestHandler<GetWearStati
             break;
         }
 
-        var today = DateTime.UtcNow.Date;
         var daysSinceLatest = (today - latestDate).TotalDays;
         var currentStreakDays = 0;
         if (daysSinceLatest <= 1)

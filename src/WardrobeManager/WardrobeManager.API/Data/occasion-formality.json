@@ -1,0 +1,26 @@
+{
+  "buckets": {
+    "sports": 1,
+    "gym": 1,
+    "athleisure": 1,
+    "loungewear": 1,
+    "casual": 2,
+    "travel": 2,
+    "everyday": 2,
+    "general": 2,
+    "outdoor": 2,
+    "smart": 3,
+    "smart casual": 3,
+    "work": 3,
+    "office": 3,
+    "business casual": 3,
+    "date": 3,
+    "party": 4,
+    "ethnic": 4,
+    "cocktail": 4,
+    "formal": 5,
+    "business formal": 5,
+    "wedding": 5,
+    "interview": 5
+  }
+}

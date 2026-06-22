@@ -1,7 +1,7 @@
-node_modules/
-dist/
-build/
-.git/
-*.log
+node_modules
+dist
+.eslintcache
 npm-debug.log*
-.env.local
+design-demos
+README.md
+Dockerfile.dev

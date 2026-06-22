@@ -1,18 +1,14 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.Outfits.Commands;
 
 public sealed class DeleteOutfitCommandHandler(
-    IOutfitRepository outfitRepository,
-    IValidator<DeleteOutfitCommand> validator) : IRequestHandler<DeleteOutfitCommand, bool>
+    IOutfitRepository outfitRepository) : IRequestHandler<DeleteOutfitCommand, bool>
 {
     public async Task<bool> Handle(DeleteOutfitCommand request, CancellationToken ct)
     {
-        await validator.ValidateAndThrowAsync(request, ct);
-        
-        var outfit = await outfitRepository.GetByIdAsync(request.Id, ct);
+        var outfit = await outfitRepository.GetByIdForUserAsync(request.Id, request.UserId, ct);
         if (outfit == null)
         {
             return false;

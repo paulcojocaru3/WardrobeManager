@@ -1,4 +1,3 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 
@@ -9,28 +8,25 @@ public record ArchivePlannerEventCommand(Guid UserId, Guid PlannerEventId) : IRe
 public sealed class ArchivePlannerEventCommandHandler : IRequestHandler<ArchivePlannerEventCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
-    private readonly IValidator<ArchivePlannerEventCommand> _validator;
+    private readonly TimeProvider _clock;
 
     public ArchivePlannerEventCommandHandler(
         IPlannerEventRepository plannerEventRepository,
-        IValidator<ArchivePlannerEventCommand> validator)
+        TimeProvider? clock = null)
     {
         _plannerEventRepository = plannerEventRepository;
-        _validator = validator;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<bool> Handle(ArchivePlannerEventCommand request, CancellationToken cancellationToken)
     {
-        await _validator.ValidateAndThrowAsync(request, cancellationToken);
-
         var plannerEvent = await _plannerEventRepository.GetByIdAsync(request.PlannerEventId, cancellationToken);
         if (plannerEvent == null || plannerEvent.UserId != request.UserId)
         {
             return false;
         }
 
-        plannerEvent.Status = "Archived";
-        plannerEvent.ArchivedAt = DateTime.UtcNow;
+        plannerEvent.Archive(_clock.GetUtcNow().UtcDateTime);
 
         await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);
         return true;

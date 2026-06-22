@@ -29,7 +29,6 @@ public static class ColorFamily
     };
 
     // shade/synonym -> basic color word, so a "navy" item satisfies a "blue" request and "charcoal"
-    // satisfies "black". Sorted longest-token-first so "tangerine" wins over the "tan" substring.
     private static readonly (string Token, string Basic)[] BasicColorTokens =
         new (string Token, string Basic)[]
         {
@@ -53,7 +52,7 @@ public static class ColorFamily
             ("beige", "brown"), ("sand", "brown"), ("tan", "brown"), ("brown", "brown"),
         }.OrderByDescending(t => t.Token.Length).ToArray();
 
-    // The basic color word a color string maps to (e.g. "navy" -> "blue"), or null when unknown.
+    // the basic color word a color string maps to (e.g. "navy" -> "blue"), or null when unknown.
     public static string? BasicColor(string? color)
     {
         if (string.IsNullOrWhiteSpace(color)) return null;
@@ -62,8 +61,7 @@ public static class ColorFamily
         return null;
     }
 
-    // Match used for color constraints. First a direct substring (so "navy blue" matches "blue"),
-    // then a shade-aware fallback so a "navy" item satisfies a "blue" request and "charcoal" "black".
+    // match used for color constraints. First a direct substring (so "navy blue" matches "blue"),
     public static bool ColorsMatch(string? itemColor, string? promptColor)
     {
         if (string.IsNullOrEmpty(itemColor) || string.IsNullOrEmpty(promptColor)) return false;

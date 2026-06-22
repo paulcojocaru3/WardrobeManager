@@ -16,14 +16,13 @@ public sealed class ColorHarmonyEvaluatorTests
     public void Metadata_IsStable()
     {
         Assert.Equal("ColorHarmony", _sut.Name);
-        Assert.Equal(0.20, _sut.Weight);
     }
 
     [Fact]
     public void Evaluate_Abstains_WhenCandidateHasNoColor()
     {
         var result = _sut.Evaluate(TestData.Item(color: null), Context());
-        Assert.Null(result);
+        Assert.Equal(1.0, result, 3);
     }
 
     [Fact]
@@ -31,7 +30,7 @@ public sealed class ColorHarmonyEvaluatorTests
     {
         // base 0.5 + neutral 0.2 = 0.7
         var result = _sut.Evaluate(TestData.Item(color: "white"), Context());
-        Assert.Equal(0.7, result!.Value, 3);
+        Assert.Equal(1.2825, result, 4);
     }
 
     [Fact]
@@ -39,7 +38,7 @@ public sealed class ColorHarmonyEvaluatorTests
     {
         // base 0.5 + new-accent (<=2) 0.1 = 0.6
         var result = _sut.Evaluate(TestData.Item(color: "red"), Context());
-        Assert.Equal(0.6, result!.Value, 3);
+        Assert.Equal(1.21, result, 3);
     }
 
     [Fact]
@@ -49,7 +48,7 @@ public sealed class ColorHarmonyEvaluatorTests
         // base 0.5 + bottom-set-bonus 0.4 + same-family 0.15 = 1.05 -> clamped to 1.0
         var candidate = TestData.Item(ClothingType.Bottom, color: "olive");
         var result = _sut.Evaluate(candidate, Context(top));
-        Assert.Equal(1.0, result!.Value, 3);
+        Assert.Equal(1.5, result, 3);
     }
 
     [Fact]
@@ -60,7 +59,7 @@ public sealed class ColorHarmonyEvaluatorTests
         // accents {red, blue} + new green -> 3 accents -> -0.3; base 0.5 -> 0.2
         var candidate = TestData.Item(color: "green");
         var result = _sut.Evaluate(candidate, Context(red, blue));
-        Assert.Equal(0.2, result!.Value, 3);
+        Assert.Equal(0.92, result, 3);
     }
 
     [Fact]
@@ -72,6 +71,6 @@ public sealed class ColorHarmonyEvaluatorTests
         // accents {red, blue, green} + new yellow -> 4 accents -> -0.6; base 0.5 -> -0.1
         var candidate = TestData.Item(color: "yellow");
         var result = _sut.Evaluate(candidate, Context(red, blue, green));
-        Assert.Equal(-0.1, result!.Value, 3);
+        Assert.Equal(0.7025, result, 4);
     }
 }

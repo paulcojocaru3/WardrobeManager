@@ -3,9 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WardrobeManager.API.Extensions;
-using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Outfits.Commands;
-using WardrobeManager.Application.Outfits.Learning;
 using WardrobeManager.Application.Outfits.Queries;
 
 namespace WardrobeManager.API.Controllers;
@@ -13,30 +11,26 @@ namespace WardrobeManager.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class OutfitsController(
-    IMediator mediator,
-    IWeatherService weatherService,
-    IMlService mlService,
-    IWeightLearningService weightLearningService) : ControllerBase
+public sealed class OutfitsController(IMediator mediator) : ControllerBase
 {
     [HttpGet("weather/{city}")]
     public async Task<IActionResult> GetWeather(string city, CancellationToken ct)
     {
-        var weather = await weatherService.GetCurrentWeatherAsync(city, ct);
+        var weather = await mediator.Send(new GetCurrentWeatherQuery(city), ct);
         return Ok(weather);
     }
 
     [HttpGet("weather/{city}/forecast")]
     public async Task<IActionResult> GetForecast(string city, [FromQuery] int days = 14, [FromQuery] DateTime? startDate = null, CancellationToken ct = default)
     {
-        var forecasts = await weatherService.GetForecastAsync(city, days, startDate, ct);
+        var forecasts = await mediator.Send(new GetWeatherForecastQuery(city, days, startDate), ct);
         return Ok(new { forecasts });
     }
 
     [HttpGet("cities/search")]
     public async Task<IActionResult> SearchCities([FromQuery] string query, CancellationToken ct)
     {
-        var cities = await weatherService.SearchCitiesAsync(query, ct);
+        var cities = await mediator.Send(new SearchCitiesQuery(query), ct);
         return Ok(cities);
     }
 
@@ -49,13 +43,6 @@ public sealed class OutfitsController(
 
     [HttpPost("generate-ai")]
     public async Task<IActionResult> GenerateAiOutfit([FromBody] GenerateAiOutfitCommand command, CancellationToken ct)
-    {
-        var result = await mediator.Send(command with { UserId = User.GetUserId() }, ct);
-        return Ok(result);
-    }
-
-    [HttpPost("generate-from-prompt")]
-    public async Task<IActionResult> GenerateFromPrompt([FromBody] GenerateOutfitFromPromptCommand command, CancellationToken ct)
     {
         var result = await mediator.Send(command with { UserId = User.GetUserId() }, ct);
         return Ok(result);
@@ -80,29 +67,25 @@ public sealed class OutfitsController(
     public async Task<IActionResult> UpdateOutfit(Guid id, [FromBody] UpdateOutfitCommand command, CancellationToken ct)
     {
         if (id != command.Id) return BadRequest("ID mismatch");
-        await mediator.Send(command, ct);
+        var result = await mediator.Send(command with { UserId = User.GetUserId() }, ct);
+        if (!result) return NotFound();
         return Ok();
     }
 
     [HttpPut("{id}/favorite")]
     public async Task<IActionResult> ToggleFavorite(Guid id, CancellationToken ct)
     {
-        var result = await mediator.Send(new ToggleOutfitFavoriteCommand(id), ct);
+        var result = await mediator.Send(new ToggleOutfitFavoriteCommand(User.GetUserId(), id), ct);
+        if (result == null) return NotFound();
         return Ok(new { isFavorite = result });
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteOutfit(Guid id, CancellationToken ct)
     {
-        await mediator.Send(new DeleteOutfitCommand(id), ct);
+        var result = await mediator.Send(new DeleteOutfitCommand(User.GetUserId(), id), ct);
+        if (!result) return NotFound();
         return NoContent();
-    }
-
-    [HttpPost("parse-prompt")]
-    public async Task<IActionResult> ParsePrompt([FromBody] ParsePromptRequest request, CancellationToken ct)
-    {
-        var (style, confidence, city) = await mlService.ParsePromptAsync(request.Prompt, ct);
-        return Ok(new { style, styleConfidence = confidence, city });
     }
 
     [HttpPost("feedback")]
@@ -112,14 +95,32 @@ public sealed class OutfitsController(
         return Ok();
     }
 
-    // Manual retrain for the current user (used by the eval script / demos).
-    [HttpPost("retrain-weights")]
-    public async Task<IActionResult> RetrainWeights(CancellationToken ct)
+    // natural-language "why this works" notes for an already-generated outfit (grounded in its facts).
+    [HttpPost("styling-notes")]
+    public async Task<IActionResult> GetStylingNotes([FromBody] StylingNotesRequest request, CancellationToken ct)
     {
-        await weightLearningService.RetrainAsync(User.GetUserId(), ct);
-        return Ok();
+        var result = await mediator.Send(
+            new ExplainOutfitQuery(User.GetUserId(), request.ItemIds, request.Style, request.Occasion, request.City, request.Tradeoffs), ct);
+        return Ok(result);
     }
 
-    public record ParsePromptRequest(string Prompt);
+    // richer weather-aware insight (headline + per-item notes + weather advice) for the daily outfit.
+    [HttpPost("insight")]
+    public async Task<IActionResult> GetOutfitInsight([FromBody] StylingNotesRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(
+            new OutfitInsightQuery(User.GetUserId(), request.ItemIds, request.Style, request.Occasion, request.City, request.Tradeoffs), ct);
+        return Ok(result);
+    }
+
+    [HttpGet("learned-profile")]
+    public async Task<IActionResult> GetLearnedProfile(CancellationToken ct)
+    {
+        var profile = await mediator.Send(new GetLearnedProfileQuery(User.GetUserId()), ct);
+        return Ok(profile);
+    }
+
     public record OutfitFeedbackRequest([property: JsonRequired] Guid GenerationId, List<OutfitFeedbackItem> Items);
+    public record StylingNotesRequest(
+        List<Guid> ItemIds, string? Style, string? Occasion, string? City, List<string>? Tradeoffs);
 }

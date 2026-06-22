@@ -1,7 +1,6 @@
 using NSubstitute;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Users.Commands;
-using WardrobeManager.Application.Users.Validators;
 using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Tests.Unit.Handlers;
@@ -13,7 +12,7 @@ public sealed class UpdateUserEmailHandlerTests
     private readonly IPasswordHasher _hasher = Substitute.For<IPasswordHasher>();
     private readonly Guid _userId = Guid.NewGuid();
 
-    private UpdateUserCommandHandler Sut() => new(_users, _hasher, new UpdateUserCommandValidator());
+    private UpdateUserCommandHandler Sut() => new(_users, _hasher);
 
     private User OwnedUser()
     {

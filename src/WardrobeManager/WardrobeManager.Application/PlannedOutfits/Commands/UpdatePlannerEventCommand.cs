@@ -1,47 +1,35 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
-public record UpdatePlannerEventCommand(Guid UserId, Guid PlannerEventId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string> PreferredStyles) : IRequest<bool>;
+public record UpdatePlannerEventCommand(Guid UserId, Guid PlannerEventId, string Name, string Type, string Location, DateTime StartDate, DateTime EndDate, List<string> PreferredStyles, int? ReuseAfterDays = null) : IRequest<bool>;
 
 public sealed class UpdatePlannerEventCommandHandler : IRequestHandler<UpdatePlannerEventCommand, bool>
 {
     private readonly IPlannerEventRepository _plannerEventRepository;
-    private readonly IValidator<UpdatePlannerEventCommand> _validator;
 
-    public UpdatePlannerEventCommandHandler(
-        IPlannerEventRepository plannerEventRepository,
-        IValidator<UpdatePlannerEventCommand> validator)
+    public UpdatePlannerEventCommandHandler(IPlannerEventRepository plannerEventRepository)
     {
         _plannerEventRepository = plannerEventRepository;
-        _validator = validator;
     }
 
     public async Task<bool> Handle(UpdatePlannerEventCommand request, CancellationToken cancellationToken)
     {
-        await _validator.ValidateAndThrowAsync(request, cancellationToken);
-
         var plannerEvent = await _plannerEventRepository.GetByIdAsync(request.PlannerEventId, cancellationToken);
         if (plannerEvent == null || plannerEvent.UserId != request.UserId)
         {
             return false;
         }
 
-        plannerEvent.Name = request.Name;
-        plannerEvent.Type = request.Type;
-        plannerEvent.Location = request.Location;
-        plannerEvent.StartDate = request.StartDate.Date;
-        plannerEvent.EndDate = request.EndDate.Date;
-        if (request.PreferredStyles != null)
-        {
-            plannerEvent.PreferredStyles = request.PreferredStyles;
-        }
-        else
-        {
-            plannerEvent.PreferredStyles = new List<string>();
-        }
+        plannerEvent.UpdateDetails(
+            request.Name,
+            request.Type,
+            request.Location,
+            request.StartDate,
+            request.EndDate,
+            request.PreferredStyles,
+            request.ReuseAfterDays);
 
         await _plannerEventRepository.UpdateAsync(plannerEvent, cancellationToken);
 

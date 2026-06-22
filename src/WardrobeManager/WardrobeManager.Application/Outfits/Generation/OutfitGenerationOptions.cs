@@ -19,6 +19,12 @@ public record OutfitGenerationOptions
     public string? TemperatureHint { get; init; }
     public IReadOnlyList<ClothingType> RequestedTypes { get; init; } = new List<ClothingType>();
 
+    // when true, strongly favor rarely/never-worn items across every slot ("rediscover" mode)
+    public bool PreferUnusedItems { get; init; }
+
+    // hard exclusions used by event packing/cooldown rules.
+    public IReadOnlySet<Guid> ExcludedItemIds { get; init; } = new HashSet<Guid>();
+
     // per-type slot constraint (required sub-type + desired/avoided colors); restricts that slot's candidates
     public IReadOnlyDictionary<ClothingType, GarmentSpec> GarmentConstraints { get; init; } = new Dictionary<ClothingType, GarmentSpec>();
 }

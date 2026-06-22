@@ -4,8 +4,7 @@ using WardrobeManager.Domain.Entities;
 
 namespace WardrobeManager.Application.PlannedOutfits.Commands;
 
-// Shared forecast lookup for the itinerary commands (add/update), so the fetch-and-resolve block
-// isn't duplicated. Returns null when the forecast is unavailable or has no entry for the date.
+// shared forecast lookup for the itinerary commands (add/update), so the fetch-and-resolve block
 internal static class EventForecastHelper
 {
     public static async Task<float?> TryGetTemperatureAsync(

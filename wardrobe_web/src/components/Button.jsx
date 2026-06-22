@@ -1,4 +1,3 @@
-import React from 'react';
 import './Button.css';
 
 const Button = ({ label, onClick, variant = 'primary', loading = false, disabled = false, type = 'button' }) => {

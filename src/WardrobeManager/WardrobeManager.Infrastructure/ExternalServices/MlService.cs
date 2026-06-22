@@ -3,13 +3,12 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WardrobeManager.Application.Abstractions;
-using WardrobeManager.Application.Outfits.Learning;
 
 namespace WardrobeManager.Infrastructure.ExternalServices;
 
 public sealed class MlService(HttpClient httpClient, ILogger<MlService> logger) : IMlService
 {
-    // Reused across calls — JsonSerializerOptions caches metadata on first use, so a new instance per request defeats it.
+    // reused across calls — JsonSerializerOptions caches metadata on first use, so a new instance per request defeats it.
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<MlClothingResult> ProcessClothingImageAsync(Stream content, string fileName, string contentType, CancellationToken ct = default)
@@ -122,32 +121,6 @@ public sealed class MlService(HttpClient httpClient, ILogger<MlService> logger) 
             return result.types;
         }
         return Array.Empty<string>();
-    }
-
-    public async Task<LearnedWeights?> TrainWeightsAsync(IReadOnlyList<WeightTrainingSample> samples, IReadOnlyList<string> featureNames, IReadOnlyDictionary<string, double> defaultWeights, CancellationToken ct = default)
-    {
-        var payload = new
-        {
-            feature_names = featureNames,
-            default_weights = defaultWeights,
-            samples = samples.Select(s => new { features = s.Features, label = s.Label })
-        };
-
-        var response = await httpClient.PostAsJsonAsync("train/weights", payload, ct);
-        if (!response.IsSuccessStatusCode) return null;
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        var result = JsonSerializer.Deserialize<TrainWeightsResponse>(json, JsonOptions);
-
-        return result?.weights is { Count: > 0 }
-            ? new LearnedWeights(result.weights, result.n_samples)
-            : null;
-    }
-
-    private class TrainWeightsResponse
-    {
-        public Dictionary<string, double>? weights { get; set; }
-        public int n_samples { get; set; }
     }
 
     private class EmbedTextResponse

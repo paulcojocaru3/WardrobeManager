@@ -5,6 +5,7 @@ using WardrobeManager.Application.Outfits.Generation;
 using WardrobeManager.Application.Outfits.Prompting;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Domain.Enums;
+using WardrobeManager.Tests.Unit.TestSupport;
 
 namespace WardrobeManager.Tests.Unit.Generation;
 
@@ -15,7 +16,7 @@ public sealed class StartItemSelectorTests
     private readonly IMlService _ml = Substitute.For<IMlService>();
     private readonly Guid _userId = Guid.NewGuid();
 
-    private StartItemSelector Sut() => new(_clothing, _ml, NullLogger<StartItemSelector>.Instance);
+    private StartItemSelector Sut() => new(_clothing, _ml, Defaults.Feasibility, NullLogger<StartItemSelector>.Instance);
 
     private void GivenEmbedding(params float[] vector)
         => _ml.EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(vector);
@@ -135,7 +136,7 @@ public sealed class StartItemSelectorTests
     public async Task SelectAsync_MultipleColors_PrefersSingleColorSeed_NotMultiColorGarment()
     {
         GivenEmbedding(1f, 2f);
-        // The bicolor blouse ranks highest by similarity, but the seed should be a single-color piece.
+        // the bicolor blouse ranks highest by similarity, but the seed should be a single-color piece.
         var bicolor = new ClothingItem { Id = Guid.NewGuid(), Usage = "Casual", Color = "white black" };
         var whiteOnly = new ClothingItem { Id = Guid.NewGuid(), Usage = "Casual", Color = "white" };
         GivenSimilar((bicolor, 0.95), (whiteOnly, 0.9));

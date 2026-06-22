@@ -5,6 +5,7 @@ using WardrobeManager.Application.Outfits.Generation;
 using WardrobeManager.Application.Outfits.Scoring;
 using WardrobeManager.Domain.Entities;
 using WardrobeManager.Domain.Enums;
+using WardrobeManager.Tests.Unit.TestSupport;
 
 namespace WardrobeManager.Tests.Unit.Generation;
 
@@ -14,16 +15,20 @@ public sealed class OutfitGeneratorTests
     private readonly IClothingRepository _clothing = Substitute.For<IClothingRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IOutfitFeedbackRepository _feedback = Substitute.For<IOutfitFeedbackRepository>();
-    private readonly IUserEvaluatorWeightsRepository _weights = Substitute.For<IUserEvaluatorWeightsRepository>();
+    private readonly IItemPairScoreRepository _pairScores = Substitute.For<IItemPairScoreRepository>();
+    private readonly IUserLearningProfileRepository _profiles = Substitute.For<IUserLearningProfileRepository>();
     private readonly Guid _userId = Guid.NewGuid();
 
     private static readonly IOutfitEvaluator[] Evaluators =
     {
-        new WeatherEvaluator(), new StyleEvaluator(), new ColorHarmonyEvaluator(),
-        new ColorPreferenceEvaluator(), new VarietyEvaluator(),
+        new WeatherEvaluator(Defaults.Thermal), new StyleEvaluator(), new ColorHarmonyEvaluator(),
+        new ColorPreferenceEvaluator(), new WearRotationEvaluator(),
+        new PairAffinityEvaluator(), new TasteProfileEvaluator(),
     };
 
-    private OutfitGenerator Sut() => new(_clothing, _users, _feedback, _weights, Evaluators, NullLogger<OutfitGenerator>.Instance);
+    // the beam-search strategy is the production default; the greedy baseline is covered separately.
+    private BeamSearchOutfitGenerator Sut() => new(_clothing, _users, _feedback, _pairScores, _profiles,
+        Evaluators, Defaults.Feasibility, NullLogger<BeamSearchOutfitGenerator>.Instance);
 
     private ClothingItem Start()
     {
@@ -34,7 +39,8 @@ public sealed class OutfitGeneratorTests
         };
         _clothing.GetByIdAsync(start.Id, Arg.Any<CancellationToken>()).Returns(start);
         _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
-        _weights.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>());
+        _profiles.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserLearningProfile?)null);
         _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(new User { Id = _userId });
         return start;
     }
@@ -53,7 +59,8 @@ public sealed class OutfitGeneratorTests
         };
         _clothing.GetByIdAsync(start.Id, Arg.Any<CancellationToken>()).Returns(start);
         _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
-        _weights.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>());
+        _profiles.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserLearningProfile?)null);
         _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(new User { Id = _userId });
         return start;
     }
@@ -76,13 +83,9 @@ public sealed class OutfitGeneratorTests
     }
 
     [Fact]
-    public async Task GenerateAiOutfit_AppliesLearnedWeights_AndStyle()
+    public async Task GenerateAiOutfit_AppliesStyle_AndBuildsNamedLook()
     {
         var start = Start();
-        _weights.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(new UserEvaluatorWeights
-        {
-            UserId = _userId, MlWeight = 0.3, Weights = new() { ["Style"] = 0.5, ["Weather"] = 0.4 },
-        });
         var c1 = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "jeans", ProcessedImageUrl = "c1", SubType = "jeans", Usage = "Casual", Color = "blue", Season = "All Seasons", Embedding = new[] { 0f, 1f, 0f } };
         GivenCandidates((c1, 0.9));
 
@@ -102,10 +105,29 @@ public sealed class OutfitGeneratorTests
     }
 
     [Fact]
+    public async Task GenerateAiOutfit_PrefersItemWithLearnedPairAffinity()
+    {
+        // two equal-similarity bottoms; one has a strong learned pairing with the seed, so it wins.
+        var start = Start();
+        var paired = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "paired", ProcessedImageUrl = "p", Usage = "Casual", Embedding = new[] { 0f, 1f, 0f } };
+        var other = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "other", ProcessedImageUrl = "o", Usage = "Casual", Embedding = new[] { 0f, 1f, 0f } };
+        GivenCandidates((other, 0.8), (paired, 0.8));
+
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>
+        {
+            [ItemPair.Canonical(start.Id, paired.Id)] = 1.0,
+        });
+
+        var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, new OutfitGenerationOptions { Threshold = 0.4 });
+
+        var bottom = result.RecommendationsPerType.First(r => r.Type == ClothingType.Bottom);
+        Assert.Equal(paired.Id, bottom.TopCandidates[0].Id);
+    }
+
+    [Fact]
     public async Task GenerateAiOutfit_FollowsSeedStyle_WhenNoExplicitStyle()
     {
-        // Casual tee seed, no explicit style. The casual shoes should win the slot over the formal
-        // ones even though the formal pair has a higher raw similarity — the seed's style steers it.
+        // casual tee seed, no explicit style. The casual shoes should win the slot over the formal
         var start = new ClothingItem
         {
             Id = Guid.NewGuid(), UserId = _userId, Type = ClothingType.Top,
@@ -113,7 +135,8 @@ public sealed class OutfitGeneratorTests
         };
         _clothing.GetByIdAsync(start.Id, Arg.Any<CancellationToken>()).Returns(start);
         _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
-        _weights.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>());
+        _profiles.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns((UserLearningProfile?)null);
         _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(new User { Id = _userId });
 
         var casualShoes = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Shoes, Name = "sneakers", ProcessedImageUrl = "c", Usage = "Casual", Embedding = new[] { 0f, 1f, 0f } };
@@ -155,6 +178,42 @@ public sealed class OutfitGeneratorTests
         var seedRec = result.RecommendationsPerType.First(r => r.Type == ClothingType.Top);
         var alts = seedRec.TopCandidates.Where(c => c.Id != start.Id).Select(c => c.Id).ToList();
         Assert.True(alts.IndexOf(casualTop.Id) < alts.IndexOf(formalTop.Id)); // casual ranks above formal
+    }
+
+    [Fact]
+    public async Task GenerateAiOutfit_ExcludesRecentlyRejectedItems()
+    {
+        var start = Start();
+        var rejected = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "rejected", ProcessedImageUrl = "r", Embedding = new[] { 0f, 1f, 0f } };
+        var fresh = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "fresh", ProcessedImageUrl = "f", Embedding = new[] { 0f, 1f, 0f } };
+        GivenCandidates((rejected, 0.95), (fresh, 0.7)); // rejected ranks higher but was rejected today
+        _feedback.GetRejectedItemIdsSinceAsync(_userId, Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { rejected.Id });
+
+        var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, new OutfitGenerationOptions { Threshold = 0.4 });
+
+        var bottom = result.RecommendationsPerType.First(r => r.Type == ClothingType.Bottom);
+        Assert.All(bottom.TopCandidates, c => Assert.NotEqual(rejected.Id, c.Id));
+        Assert.Contains(bottom.TopCandidates, c => c.Id == fresh.Id);
+    }
+
+    [Fact]
+    public async Task GenerateAiOutfit_AppliesExplicitExclusionsToNonSeedSlots()
+    {
+        var start = Start();
+        var excluded = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "excluded", ProcessedImageUrl = "x", Embedding = new[] { 0f, 1f, 0f } };
+        var available = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "available", ProcessedImageUrl = "a", Embedding = new[] { 0f, 1f, 0f } };
+        GivenCandidates((excluded, 0.95), (available, 0.7));
+
+        var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, new OutfitGenerationOptions
+        {
+            Threshold = 0.4,
+            ExcludedItemIds = new HashSet<Guid> { excluded.Id }
+        });
+
+        var bottom = result.RecommendationsPerType.First(r => r.Type == ClothingType.Bottom);
+        Assert.DoesNotContain(bottom.TopCandidates, candidate => candidate.Id == excluded.Id);
+        Assert.Contains(bottom.TopCandidates, candidate => candidate.Id == available.Id);
     }
 
     [Fact]
@@ -209,7 +268,7 @@ public sealed class OutfitGeneratorTests
     public async Task GenerateAiOutfit_Warns_WhenAvoidColorCannotBeHonored()
     {
         var start = Start();
-        // Only black bottoms exist, but the user asked to avoid black for the bottom -> kept + warned.
+        // only black bottoms exist, but the user asked to avoid black for the bottom -> kept + warned.
         var blackBottom = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "b", ProcessedImageUrl = "b", Color = "black", Embedding = new[] { 0f, 1f, 0f } };
         GivenCandidates((blackBottom, 0.9));
 
@@ -224,7 +283,8 @@ public sealed class OutfitGeneratorTests
 
         var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, options);
 
-        Assert.Contains(result.Warnings, w => w.Contains("avoid", StringComparison.OrdinalIgnoreCase) && w.Contains("black"));
+        Assert.Contains(result.Warnings, w =>
+            w.Contains("Color avoidance", StringComparison.OrdinalIgnoreCase) && w.Contains("bottoms"));
     }
 
     [Fact]
@@ -245,7 +305,8 @@ public sealed class OutfitGeneratorTests
 
         var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, options);
 
-        Assert.Contains(result.Warnings, w => w.Contains("blue") && w.Contains("bottoms"));
+        Assert.Contains(result.Warnings, w =>
+            w.Contains("Palette targeting", StringComparison.OrdinalIgnoreCase) && w.Contains("bottoms"));
     }
 
     [Fact]
@@ -267,6 +328,41 @@ public sealed class OutfitGeneratorTests
         var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, options);
 
         Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public async Task GenerateAiOutfit_FillsEssentialSlot_EvenWhenAllCandidatesWeatherVetoed()
+    {
+        // the wardrobe has a bottom, but it's a Winter piece and it's 30°C -> feasibility would veto it.
+        var start = Start();
+        var winterBottom = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "wool pants", ProcessedImageUrl = "wb", Color = "black", Season = "Winter", Embedding = new[] { 0f, 1f, 0f } };
+        GivenCandidates((winterBottom, 0.8));
+
+        var options = new OutfitGenerationOptions { Threshold = 0.4, Weather = new WeatherData(30, "Clear", "Summer") };
+        var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, options);
+
+        var bottom = result.RecommendationsPerType.First(r => r.Type == ClothingType.Bottom);
+        Assert.NotEmpty(bottom.TopCandidates);                                  // filled despite the weather veto
+        Assert.Contains(bottom.TopCandidates, c => c.Id == winterBottom.Id);
+    }
+
+    [Fact]
+    public async Task GenerateAiOutfit_LeavesSlotEmpty_AndWarns_WhenWardrobeTrulyLacksType()
+    {
+        var start = Start();
+        var bottom = new ClothingItem { Id = Guid.NewGuid(), Type = ClothingType.Bottom, Name = "b", ProcessedImageUrl = "b", Embedding = new[] { 0f, 1f, 0f } };
+        GivenCandidates((bottom, 0.8));
+        // no shoes in the wardrobe at all (even after the gender-relaxed retry).
+        _clothing.GetSimilarItemsAsync(Arg.Any<Guid>(), Arg.Any<float[]>(), ClothingType.Shoes,
+                Arg.Any<int>(), Arg.Any<double?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<(ClothingItem, double)>());
+
+        var result = await Sut().GenerateAiOutfitAsync(_userId, start.Id, new OutfitGenerationOptions { Threshold = 0.4 });
+
+        var shoes = result.RecommendationsPerType.First(r => r.Type == ClothingType.Shoes);
+        Assert.Empty(shoes.TopCandidates);
+        Assert.Contains(result.Warnings, w => w.Contains("shoes", StringComparison.OrdinalIgnoreCase));
+        Assert.False(result.IsValid);
     }
 
     [Fact]

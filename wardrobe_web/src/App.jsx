@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import Toast from './components/Toast';
 import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
-import { TOKEN_KEY } from './services/apiClient';
+import { authApi } from './services/wardrobeApi';
 
 const USER_KEY = 'wardrobe_user';
 
 const getInitialUser = () => {
   const savedUser = localStorage.getItem(USER_KEY);
-  const token = localStorage.getItem(TOKEN_KEY);
-  // A user is only valid alongside a token.
-  if (!savedUser || !token) {
+  if (!savedUser) {
     return null;
   }
 
@@ -27,9 +27,8 @@ function App() {
   const [user, setUser] = useState(getInitialUser);
   const isLoggedIn = Boolean(user);
 
-  // Login/register return { token, user }: persist both.
-  const handleAuthSuccess = ({ token, user: userData }) => {
-    localStorage.setItem(TOKEN_KEY, token);
+  // Login/register set the HttpOnly auth cookie server-side; persist only the safe user projection.
+  const handleAuthSuccess = ({ user: userData }) => {
     localStorage.setItem(USER_KEY, JSON.stringify(userData));
     setUser(userData);
   };
@@ -41,12 +40,12 @@ function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem(TOKEN_KEY);
+    authApi.logout().catch(() => {});
     localStorage.removeItem(USER_KEY);
     setUser(null);
   };
 
-  // The apiClient fires this when a request gets a 401 (expired/invalid token).
+  // The apiClient fires this when a request gets a 401 (expired/invalid cookie).
   useEffect(() => {
     const onUnauthorized = () => setUser(null);
     window.addEventListener('wardrobe:unauthorized', onUnauthorized);
@@ -57,7 +56,10 @@ function App() {
     <ThemeProvider>
       <div className="app-container">
         {isLoggedIn ? (
-          <DashboardPage user={user} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />
+          <NotificationProvider>
+            <DashboardPage user={user} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />
+            <Toast />
+          </NotificationProvider>
         ) : (
           <AuthPage onLoginSuccess={handleAuthSuccess} />
         )}

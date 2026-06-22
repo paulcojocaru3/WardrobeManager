@@ -4,29 +4,32 @@ import { apiClient } from './apiClient';
 export const authApi = {
   login: (payload) => apiClient.post('/users/login', payload),
   register: (payload) => apiClient.post('/users/register', payload),
+  logout: () => apiClient.post('/users/logout'),
   updateUser: (userId, payload) => apiClient.put(`/users/${userId}`, payload),
   updatePreferences: (userId, payload) => apiClient.put(`/users/${userId}/preferences`, payload),
   deleteUser: (userId) => apiClient.delete(`/users/${userId}`),
 };
 
 export const outfitsApi = {
-  parsePrompt: (prompt) => apiClient.post('/outfits/parse-prompt', { prompt }),
   searchCities: (query) => apiClient.get('/outfits/cities/search', { params: { query } }),
   getWeather: (city) => apiClient.get(`/outfits/weather/${city}`),
   getForecast: (city, startDate) => apiClient.get(`/outfits/weather/${city}/forecast`, { params: { startDate } }),
   getByUser: (userId) => apiClient.get(`/outfits/user/${userId}`),
   generateAi: (payload) => apiClient.post('/outfits/generate-ai', payload),
-  generateFromPrompt: (payload) => apiClient.post('/outfits/generate-from-prompt', payload),
+  getStylingNotes: (payload) => apiClient.post('/outfits/styling-notes', payload),
+  getOutfitInsight: (payload) => apiClient.post('/outfits/insight', payload),
   create: (payload) => apiClient.post('/outfits', payload),
   update: (id, payload) => apiClient.put(`/outfits/${id}`, payload),
   toggleFavorite: (id) => apiClient.put(`/outfits/${id}/favorite`),
   remove: (id) => apiClient.delete(`/outfits/${id}`),
   recordWear: (outfitId, payload) => apiClient.post(`/wear-events/outfit/${outfitId}`, payload),
   recordFeedback: (generationId, items) => apiClient.post('/outfits/feedback', { generationId, items }),
+  getLearnedProfile: () => apiClient.get('/outfits/learned-profile'),
 };
 
 export const clothingApi = {
   getByUser: (userId) => apiClient.get(`/clothing/${userId}`),
+  getSimilar: (itemId, params) => apiClient.get(`/clothing/${itemId}/similar`, { params }),
   getSubtypes: () => apiClient.get('/clothing/subtypes'),
   process: (formData) => apiClient.post('/clothing/process', formData),
   add: (payload) => apiClient.post('/clothing/add', payload),
@@ -37,8 +40,6 @@ export const clothingApi = {
 export const statsApi = {
   getWearStats: (userId, params) => apiClient.get(`/wear-events/stats/${userId}`, { params }),
 };
-
-const extractGenerateOutfitsWeatherAlert = (response) => response?.data?.weatherAlert ?? null;
 
 export const plannerEventsApi = {
   getByUser: (userId) => apiClient.get(`/planner-events/${userId}`),
@@ -52,11 +53,16 @@ export const plannerEventsApi = {
   removeItinerary: (userId, plannerEventId, itineraryId) => apiClient.delete(`/planner-events/${userId}/${plannerEventId}/itineraries/${itineraryId}`),
   generateOutfits: (plannerEventId, payload) => apiClient.post(`/planner-events/${plannerEventId}/generate-outfits`, payload),
   regenerateItinerary: (plannerEventId, itineraryId, payload) => apiClient.post(`/planner-events/${plannerEventId}/itineraries/${itineraryId}/regenerate`, payload),
-  getTestAlert: (userId) => apiClient.get(`/planner-events/${userId}/test-alert`),
-  extractGenerateOutfitsWeatherAlert,
+};
+
+export const notificationsApi = {
+  list: (params) => apiClient.get('/notifications', { params }),
+  unreadCount: () => apiClient.get('/notifications/unread-count'),
+  markRead: (id) => apiClient.post(`/notifications/${id}/read`),
+  markAllRead: () => apiClient.post('/notifications/read-all'),
 };
 
 export const geoApi = {
   detectPrimary: () => axios.get('https://ipapi.co/json/'),
-  detectFallback: () => axios.get('http://ip-api.com/json/'),
+  detectFallback: () => axios.get('https://ip-api.com/json/'),
 };

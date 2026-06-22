@@ -1,4 +1,3 @@
-using FluentValidation;
 using MediatR;
 using WardrobeManager.Application.Abstractions;
 using WardrobeManager.Application.Users.Dtos;
@@ -9,13 +8,10 @@ namespace WardrobeManager.Application.Users.Commands;
 public sealed class RegisterUserCommandHandler(
     IUserRepository userRepository,
     IPasswordHasher passwordHasher,
-    IJwtTokenService jwtTokenService,
-    IValidator<RegisterUserCommand> validator) : IRequestHandler<RegisterUserCommand, AuthResponse>
+    IJwtTokenService jwtTokenService) : IRequestHandler<RegisterUserCommand, AuthResponse>
 {
     public async Task<AuthResponse> Handle(RegisterUserCommand request, CancellationToken ct)
     {
-        await validator.ValidateAndThrowAsync(request, ct);
-
         if (await userRepository.GetByEmailAsync(request.Email, ct) != null)
             throw new Exception("Email is already in use.");
         if (await userRepository.GetByUsernameAsync(request.Username, ct) != null)

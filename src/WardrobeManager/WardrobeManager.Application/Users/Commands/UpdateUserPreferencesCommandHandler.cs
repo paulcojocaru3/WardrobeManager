@@ -62,6 +62,31 @@ public sealed class UpdateUserPreferencesCommandHandler(IUserRepository userRepo
         if (request.OuterwearTempThreshold != null)
             user.OuterwearTempThreshold = Math.Clamp(request.OuterwearTempThreshold.Value, 5, 30);
 
+        if (request.AvoidColors != null)
+            user.AvoidColors = request.AvoidColors
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Select(c => c.Trim().ToLowerInvariant())
+                .Distinct()
+                .ToList();
+
+        if (request.VarietyLevel != null)
+        {
+            var level = request.VarietyLevel.Trim().ToLowerInvariant();
+            user.VarietyLevel = level is "low" or "high" ? level : "normal";
+        }
+
+        if (request.BlockDuplicateUploads != null)
+            user.BlockDuplicateUploads = request.BlockDuplicateUploads.Value;
+
+        if (request.PreferLightOnHotDays != null)
+            user.PreferLightOnHotDays = request.PreferLightOnHotDays.Value;
+
+        if (request.UseGemmaStylistForOutfits != null)
+            user.UseGemmaStylistForOutfits = request.UseGemmaStylistForOutfits.Value;
+
+        if (request.UpdateDefaultReuseAfterDays)
+            user.DefaultReuseAfterDays = request.DefaultReuseAfterDays;
+
         await userRepository.UpdateAsync(user, ct);
         return UserDto.FromEntity(user);
     }

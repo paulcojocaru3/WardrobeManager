@@ -29,12 +29,14 @@ public sealed class WeatherServiceTests
         var sut = Service(handler);
 
         var first = await sut.GetCurrentWeatherAsync("Paris");
+        var afterFirst = handler.CallCount;              // current weather + best-effort rain-pop lookup
         var second = await sut.GetCurrentWeatherAsync("Paris"); // served from cache
 
         Assert.Equal(27.5f, first.Temperature);
         Assert.Equal("Clouds", first.Condition);
         Assert.Equal("Summer", first.SeasonSuggestion); // > 25
-        Assert.Equal(1, handler.CallCount);              // cached, not re-fetched
+        Assert.Equal(2, afterFirst);                     // one weather call + one rain-probability call
+        Assert.Equal(afterFirst, handler.CallCount);     // second lookup is fully cached, not re-fetched
     }
 
     [Fact]
@@ -50,7 +52,7 @@ public sealed class WeatherServiceTests
         var handler = new FakeHttpMessageHandler(_ => FakeHttpMessageHandler.Json(new[]
         {
             new { name = "Paris", country = "FR", state = (string?)null },
-            new { name = "Paris", country = "US", state = "Texas" },
+            new { name = "Paris", country = "US", state = (string?)"Texas" },
         }));
 
         var result = await Service(handler).SearchCitiesAsync("Paris");

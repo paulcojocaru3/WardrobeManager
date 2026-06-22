@@ -27,17 +27,17 @@ public sealed class UpdateClothingCommandHandler : IRequestHandler<UpdateClothin
 
     public async Task<bool> Handle(UpdateClothingCommand request, CancellationToken ct)
     {
-        var item = await _repository.GetByIdAsync(request.Id);
-        if (item == null || item.UserId != request.UserId) return false;
+        var item = await _repository.GetByIdForUserAsync(request.Id, request.UserId, ct);
+        if (item == null) return false;
 
-        item.Name = request.Name;
-        item.Type = request.Type;
-        if (request.SubType != null)
-            item.SubType = string.IsNullOrWhiteSpace(request.SubType) ? null : request.SubType.Trim().ToLowerInvariant();
-        item.Color = request.Color;
-        item.Gender = request.Gender;
-        item.Season = request.Season;
-        item.Usage = request.Usage;
+        item.UpdateDetails(
+            request.Name,
+            request.Type,
+            request.SubType,
+            request.Color,
+            request.Gender,
+            request.Season,
+            request.Usage);
 
         await _repository.UpdateAsync(item);
         return true;

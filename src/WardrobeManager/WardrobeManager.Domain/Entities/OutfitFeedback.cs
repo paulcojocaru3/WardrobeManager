@@ -10,13 +10,12 @@ public class OutfitFeedback
     public Guid ClothingItemId { get; set; }
 
     public ClothingType SlotType { get; set; }
-    public int Rank { get; set; }
-    public double FinalScore { get; set; }
 
-    // normalized per-evaluator scores — these are the training features
-    public Dictionary<string, double> EvaluatorScores { get; set; } = new();
+    // 0 = the slot's top pick; a Rank == 0 row later marked Rejected is an active swap-out
+    public int Rank { get; set; }
 
     public FeedbackAction Action { get; set; } = FeedbackAction.Shown;
+    public string? Occasion { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ActionedAt { get; set; }
 }

@@ -12,7 +12,13 @@ public record UserDto(
     string? ThemePreference,
     string? OuterwearMode,
     int OuterwearTempThreshold,
-    DateTime CreatedAt)
+    DateTime CreatedAt,
+    List<string> AvoidColors,
+    string VarietyLevel,
+    int? DefaultReuseAfterDays,
+    bool BlockDuplicateUploads,
+    bool PreferLightOnHotDays,
+    bool UseGemmaStylistForOutfits)
 {
     public static UserDto FromEntity(User user) => new(
         user.Id,
@@ -23,5 +29,11 @@ public record UserDto(
         user.ThemePreference,
         user.OuterwearMode,
         user.OuterwearTempThreshold,
-        user.CreatedAt);
+        user.CreatedAt,
+        user.AvoidColors,
+        user.VarietyLevel,
+        user.DefaultReuseAfterDays,
+        user.BlockDuplicateUploads,
+        user.PreferLightOnHotDays,
+        user.UseGemmaStylistForOutfits);
 }

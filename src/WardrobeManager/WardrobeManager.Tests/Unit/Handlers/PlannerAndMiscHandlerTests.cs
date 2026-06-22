@@ -50,7 +50,10 @@ public sealed class RecordOutfitWearCommandHandlerTests
 {
     private readonly IOutfitRepository _outfits = Substitute.For<IOutfitRepository>();
     private readonly IWearEventRepository _wear = Substitute.For<IWearEventRepository>();
-    private RecordOutfitWearCommandHandler Sut() => new(_outfits, _wear);
+    private readonly IOutfitFeedbackRepository _feedback = Substitute.For<IOutfitFeedbackRepository>();
+    private readonly IFeedbackLearningCoordinator _learning = Substitute.For<IFeedbackLearningCoordinator>();
+    private RecordOutfitWearCommandHandler Sut() =>
+        new(_outfits, _wear, _feedback, _learning, NullLogger<RecordOutfitWearCommandHandler>.Instance);
 
     [Fact]
     public async Task Handle_RecordsWearEvents_ForOutfitItems()
@@ -70,6 +73,38 @@ public sealed class RecordOutfitWearCommandHandlerTests
         Assert.True(result);
         await _wear.Received(1).AddRangeAsync(
             Arg.Is<IEnumerable<WearEvent>>(e => e.Count() == 2), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_EmitsWornFeedback_WhenOutfitFromGeneration()
+    {
+        var userId = Guid.NewGuid();
+        var generationId = Guid.NewGuid();
+        var outfit = new Outfit
+        {
+            Id = Guid.NewGuid(), UserId = userId, AiGenerationId = generationId,
+            Items = new() { new ClothingItem { Id = Guid.NewGuid() } },
+        };
+        _wear.GetByUserIdAsync(userId, Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(new List<WearEvent>());
+        _outfits.GetByIdAsync(outfit.Id, Arg.Any<CancellationToken>()).Returns(outfit);
+
+        await Sut().Handle(new RecordOutfitWearCommand(userId, outfit.Id), CancellationToken.None);
+
+        await _feedback.Received(1).RecordActionsForItemsAsync(userId, generationId, Arg.Any<IEnumerable<Guid>>(), FeedbackAction.Worn, Arg.Any<CancellationToken>());
+        await _learning.Received(1).LearnFromGenerationAsync(userId, generationId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_SkipsWornFeedback_WhenNotFromGeneration()
+    {
+        var userId = Guid.NewGuid();
+        var outfit = new Outfit { Id = Guid.NewGuid(), UserId = userId, AiGenerationId = null, Items = new() { new ClothingItem { Id = Guid.NewGuid() } } };
+        _wear.GetByUserIdAsync(userId, Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(new List<WearEvent>());
+        _outfits.GetByIdAsync(outfit.Id, Arg.Any<CancellationToken>()).Returns(outfit);
+
+        await Sut().Handle(new RecordOutfitWearCommand(userId, outfit.Id), CancellationToken.None);
+
+        await _learning.DidNotReceive().LearnFromGenerationAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -99,11 +134,10 @@ public sealed class RecordOutfitWearCommandHandlerTests
 public sealed class RecordOutfitFeedbackCommandHandlerTests
 {
     private readonly IOutfitFeedbackRepository _feedback = Substitute.For<IOutfitFeedbackRepository>();
-    private readonly IUserEvaluatorWeightsRepository _weights = Substitute.For<IUserEvaluatorWeightsRepository>();
-    private readonly IWeightLearningService _learning = Substitute.For<IWeightLearningService>();
+    private readonly IFeedbackLearningCoordinator _learning = Substitute.For<IFeedbackLearningCoordinator>();
 
     private RecordOutfitFeedbackCommandHandler Sut()
-        => new(_feedback, _weights, _learning, NullLogger<RecordOutfitFeedbackCommandHandler>.Instance);
+        => new(_feedback, _learning, NullLogger<RecordOutfitFeedbackCommandHandler>.Instance);
 
     private static RecordOutfitFeedbackCommand Command()
         => new(Guid.NewGuid(), Guid.NewGuid(), new List<OutfitFeedbackItem>
@@ -113,35 +147,21 @@ public sealed class RecordOutfitFeedbackCommandHandlerTests
         });
 
     [Fact]
-    public async Task Handle_RecordsActions_AndTriggersRetrain_OverThreshold()
+    public async Task Handle_RecordsActions_AndRunsLearning()
     {
-        _feedback.CountActionableAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(8);
-        _weights.GetByUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
-
         var result = await Sut().Handle(Command(), CancellationToken.None);
 
         Assert.True(result);
         await _feedback.Received(1).RecordActionAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<Guid>(), FeedbackAction.Accepted, Arg.Any<CancellationToken>());
-        await _learning.Received(1).RetrainAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _feedback.DidNotReceive().RecordActionAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<Guid>(), FeedbackAction.Shown, Arg.Any<CancellationToken>());
+        await _learning.Received(1).LearnFromGenerationAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Handle_SkipsRetrain_BelowThreshold()
+    public async Task Handle_SwallowsLearningFailure()
     {
-        _feedback.CountActionableAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(3);
-        _weights.GetByUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
-
-        await Sut().Handle(Command(), CancellationToken.None);
-
-        await _learning.DidNotReceive().RetrainAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Handle_SwallowsRetrainFailure()
-    {
-        _feedback.CountActionableAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(20);
-        _weights.GetByUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((UserEvaluatorWeights?)null);
-        _learning.RetrainAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns<Task>(_ => throw new Exception("train fail"));
+        _learning.LearnFromGenerationAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new Exception("learning fail"));
 
         Assert.True(await Sut().Handle(Command(), CancellationToken.None));
     }
@@ -233,7 +253,9 @@ public sealed class PlannerEventQueryHandlerTests
 
         Assert.Single(result);
         var itinerary = Assert.Single(result[0].Itineraries);
-        Assert.Equal("Look", itinerary.Outfit.Name);
-        Assert.Single(itinerary.Outfit.Items);
+        var projectedOutfit = itinerary.Outfit;
+        Assert.NotNull(projectedOutfit);
+        Assert.Equal("Look", projectedOutfit.Name);
+        Assert.Single(projectedOutfit.Items);
     }
 }

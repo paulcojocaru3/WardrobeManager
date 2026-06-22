@@ -1,5 +1,7 @@
 # Sistem pentru Gestionarea Garderobei Digitale si Recomandari Personalizate bazate pe Inteligenta Artificiala
 
+Versiune stabila: **1.0.0**
+
 Acest proiect reprezinta o solutie software integrata destinata digitalizarii pieselor vestimentare si optimizarii procesului de selectie a tinutelor prin utilizarea algoritmilor de invatare automata si cautare vectoriala.
 
 ## Obiectivele Proiectului
@@ -41,10 +43,29 @@ Structura radacina a repository-ului este divizata dupa cum urmeaza:
 
 ## Instructiuni de Configurare si Rulare
 
+### Pornire completa cu Docker (recomandat)
+
+Sunt necesare Docker Engine si Docker Compose v2.
+
+```bash
+cp .env.example .env
+# Completeaza POSTGRES_PASSWORD si JWT_KEY in .env
+docker compose up -d --build
+```
+
+Aplicatia este disponibila implicit la `http://localhost`. Prima pornire a serviciului ML poate dura cateva minute deoarece modelele sunt descarcate si memorate intr-un volum persistent.
+
+```bash
+docker compose ps
+docker compose logs -f wardrobe-api ml-api
+```
+
+Configurarea completa pentru un host de productie, HTTPS, actualizari si backup este descrisa in [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ### Cerinte Preliminare
 *   .NET SDK 10.0+
-*   Node.js (versiunea Long Term Support)
-*   Python 3.10+
+*   Node.js 24+
+*   Python 3.12+
 *   Instanta PostgreSQL configurata cu extensia `pgvector`
 
 ### Instalare si Pornire
@@ -66,6 +87,34 @@ dotnet run
 #### Aplicatia Frontend
 ```bash
 cd wardrobe_web
-npm install
+npm ci
 npm run dev
 ```
+
+## Verificari de calitate
+
+```bash
+dotnet test src/WardrobeManager/WardrobeManager.sln -c Release
+npm --prefix wardrobe_web run lint
+npm --prefix wardrobe_web run build
+python -m compileall -q ml_api/api.py
+```
+
+Workflow-ul GitHub Actions din `.github/workflows/ci.yml` ruleaza aceleasi verificari la fiecare push si pull request pe `master`.
+
+## Publicarea versiunii finale pe GitHub
+
+Inainte de publicare, verifica in mod explicit lista fisierelor incluse:
+
+```bash
+git status
+git diff --check
+git add -A
+git status
+git commit -m "Prepare v1.0.0 release"
+git tag -a v1.0.0 -m "WardrobeManager v1.0.0"
+git push origin master
+git push origin v1.0.0
+```
+
+Nu comite fisierul `.env`, chei API, parole, backup-uri de baza de date sau date Kaggle. Regulile din `.gitignore` acopera aceste fisiere, dar lista staged trebuie verificata inainte de commit.

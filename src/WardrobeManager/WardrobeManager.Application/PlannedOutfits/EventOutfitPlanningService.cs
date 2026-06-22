@@ -5,7 +5,7 @@ namespace WardrobeManager.Application.PlannedOutfits;
 
 public sealed class EventOutfitPlanningService(IClothingRepository clothingRepository) : IEventOutfitPlanningService
 {
-    // Alert threshold for temperature change (°C) between stored forecast and current weather.
+    // alert threshold for temperature change (°C) between stored forecast and current weather.
     private const float WeatherTemperatureAlertDeltaCelsius = 5f;
 
     public (string Style, string Moment) ResolveDayPlan(string eventType, int dayIndex, WeatherData? weather, string? existingMoment = null, List<string>? preferredStyles = null)
@@ -29,7 +29,7 @@ public sealed class EventOutfitPlanningService(IClothingRepository clothingRepos
             return (CanonicalizeStyle(inferredStyle), existingMoment);
         }
 
-        // If no existing moment, fallback to auto-generation rules
+        // if no existing moment, fallback to auto-generation rules
         if (dayIndex == 0)
         {
             var (firstStyle, firstMoment) = eventType switch
@@ -61,7 +61,7 @@ public sealed class EventOutfitPlanningService(IClothingRepository clothingRepos
 
     private static string GetDefaultStyleForEvent(string eventType, WeatherData? weather, List<string>? preferredStyles)
     {
-        // If the user explicitly provided a Vibe/Preferred Styles for this trip, respect the first one available
+        // if the user explicitly provided a Vibe/Preferred Styles for this trip, respect the first one available
         if (preferredStyles != null && preferredStyles.Count > 0)
         {
             return preferredStyles.First(); // Prioritize user's vibe
