@@ -10,7 +10,7 @@ namespace WardrobeManager.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class UsersController(IMediator mediator) : ControllerBase
+public sealed class UsersController(IMediator mediator, IWebHostEnvironment environment) : ControllerBase
 {
     private const string AuthCookieName = "wardrobe_auth";
 
@@ -120,11 +120,16 @@ public sealed class UsersController(IMediator mediator) : ControllerBase
 
     private CookieOptions BuildCookieOptions()
     {
+        // Always mark the auth cookie Secure in real deployments; only relax it for local
+        // HTTP development so the cookie can still round-trip there.
+        var secure = !environment.IsDevelopment() || Request.IsHttps;
+
         return new CookieOptions
         {
             HttpOnly = true,
-            Secure = Request.IsHttps,
-            SameSite = Request.IsHttps ? SameSiteMode.None : SameSiteMode.Lax,
+            Secure = secure,
+            // SameSite=None requires Secure; fall back to Lax only on the insecure dev cookie.
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
             MaxAge = TimeSpan.FromHours(24),
             Path = "/"
         };

@@ -92,3 +92,54 @@ public sealed class GetClothingItemsQueryValidatorTests
     public void Fails_WhenUserIdEmpty()
         => _sut.TestValidate(new GetClothingItemsQuery(Guid.Empty)).ShouldHaveValidationErrorFor(x => x.UserId);
 }
+
+[Trait("Category", "Unit")]
+public sealed class UpdateClothingCommandValidatorTests
+{
+    private readonly UpdateClothingCommandValidator _sut = new();
+    private static UpdateClothingCommand Valid()
+        => new(Guid.NewGuid(), Guid.NewGuid(), "Blue Shirt", ClothingType.Top, "blue", "Men", "Summer", "Casual", "tshirts");
+
+    [Fact]
+    public void Passes_ForValidCommand() => _sut.TestValidate(Valid()).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Fails_WhenIdEmpty()
+        => _sut.TestValidate(Valid() with { Id = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.Id);
+
+    [Fact]
+    public void Fails_WhenUserIdEmpty()
+        => _sut.TestValidate(Valid() with { UserId = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.UserId);
+
+    [Fact]
+    public void Fails_WhenNameEmpty()
+        => _sut.TestValidate(Valid() with { Name = "" }).ShouldHaveValidationErrorFor(x => x.Name);
+
+    [Fact]
+    public void Fails_WhenColorTooLong()
+        => _sut.TestValidate(Valid() with { Color = new string('x', 41) }).ShouldHaveValidationErrorFor(x => x.Color);
+
+    [Fact]
+    public void Fails_WhenSubTypeTooLong()
+        => _sut.TestValidate(Valid() with { SubType = new string('x', 81) }).ShouldHaveValidationErrorFor(x => x.SubType);
+}
+
+[Trait("Category", "Unit")]
+public sealed class FindSimilarItemsQueryValidatorTests
+{
+    private readonly FindSimilarItemsQueryValidator _sut = new();
+    private static FindSimilarItemsQuery Valid() => new(Guid.NewGuid(), Guid.NewGuid(), 10);
+
+    [Fact]
+    public void Passes_ForValidQuery() => _sut.TestValidate(Valid()).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Fails_WhenItemIdEmpty()
+        => _sut.TestValidate(Valid() with { ItemId = Guid.Empty }).ShouldHaveValidationErrorFor(x => x.ItemId);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(51)]
+    public void Fails_WhenLimitOutOfRange(int limit)
+        => _sut.TestValidate(Valid() with { Limit = limit }).ShouldHaveValidationErrorFor(x => x.Limit);
+}

@@ -257,6 +257,154 @@ public sealed class RepositoryTests
     }
 
     [Fact]
+    public async Task NotificationRepository_FullLifecycle()
+    {
+        var userId = (await SeedUserAsync()).Id;
+        var now = DateTime.UtcNow;
+        var older = Notification.Create(userId, "WeatherAlert", "Old", "m", null, "dedup-1", now.AddMinutes(-10));
+        var newer = Notification.Create(userId, "DuplicateDetected", "New", "m", "{}", null, now);
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new NotificationRepository(ctx);
+            await repo.AddAsync(older);
+            await repo.AddAsync(newer);
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new NotificationRepository(ctx);
+            var all = await repo.GetByUserAsync(userId, unreadOnly: false, take: 10);
+            Assert.Equal(2, all.Count);
+            Assert.Equal("New", all[0].Title); // newest first
+
+            Assert.Single(await repo.GetByUserAsync(userId, unreadOnly: false, take: 1)); // take caps page
+            Assert.Equal(2, await repo.GetUnreadCountAsync(userId));
+            Assert.True(await repo.ExistsByDedupKeyAsync(userId, "dedup-1"));
+            Assert.False(await repo.ExistsByDedupKeyAsync(userId, "missing"));
+
+            Assert.True(await repo.MarkReadAsync(userId, newer.Id));
+            Assert.False(await repo.MarkReadAsync(userId, Guid.NewGuid())); // unknown id
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new NotificationRepository(ctx);
+            Assert.Equal(1, await repo.GetUnreadCountAsync(userId));
+            Assert.Single(await repo.GetByUserAsync(userId, unreadOnly: true, take: 10));
+
+            Assert.Equal(1, await repo.MarkAllReadAsync(userId)); // only the remaining unread one
+            Assert.Equal(0, await repo.MarkAllReadAsync(userId)); // nothing left to mark
+            Assert.Equal(0, await repo.GetUnreadCountAsync(userId));
+        }
+    }
+
+    [Fact]
+    public async Task ClothingRepository_GetLeastWornCandidates_OrdersNeverWornFirst_AndFiltersByStyle()
+    {
+        var user = await SeedUserAsync();
+        var neverWorn = new ClothingItem { UserId = user.Id, Name = "Fresh", Type = ClothingType.Top, Usage = "Casual", Embedding = new float[512] };
+        var worn = new ClothingItem { UserId = user.Id, Name = "Worn", Type = ClothingType.Top, Usage = "Casual", Embedding = new float[512] };
+        var noEmbedding = new ClothingItem { UserId = user.Id, Name = "NoVec", Type = ClothingType.Top, Usage = "Casual" };
+        var otherStyle = new ClothingItem { UserId = user.Id, Name = "Formal", Type = ClothingType.Top, Usage = "Formal", Embedding = new float[512] };
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            ctx.ClothingItems.AddRange(neverWorn, worn, noEmbedding, otherStyle);
+            ctx.WearEvents.Add(new WearEvent { UserId = user.Id, ClothingItemId = worn.Id, WearDate = DateTime.UtcNow.AddDays(-1) });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new ClothingRepository(ctx);
+
+            var casual = await repo.GetLeastWornCandidatesAsync(user.Id, "Casual", limit: 10);
+            Assert.Equal(new[] { neverWorn.Id, worn.Id }, casual.Select(i => i.Id)); // never-worn first, no-embedding excluded
+
+            var all = await repo.GetLeastWornCandidatesAsync(user.Id, style: null, limit: 10);
+            Assert.Contains(all, i => i.Id == otherStyle.Id); // style filter dropped
+        }
+    }
+
+    [Fact]
+    public async Task OutfitFeedbackRepository_GetRecentlyShownItemIds_FiltersBySinceAndSlot()
+    {
+        var userId = Guid.NewGuid();
+        var generationId = Guid.NewGuid();
+        var top = Guid.NewGuid();
+        var bottom = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            ctx.OutfitFeedbacks.AddRange(
+                new OutfitFeedback { UserId = userId, GenerationId = generationId, ClothingItemId = top, SlotType = ClothingType.Top, CreatedAt = now.AddHours(-1) },
+                new OutfitFeedback { UserId = userId, GenerationId = generationId, ClothingItemId = bottom, SlotType = ClothingType.Bottom, CreatedAt = now.AddHours(-1) },
+                new OutfitFeedback { UserId = userId, GenerationId = generationId, ClothingItemId = Guid.NewGuid(), SlotType = ClothingType.Top, CreatedAt = now.AddDays(-10) });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new OutfitFeedbackRepository(ctx);
+
+            var recent = await repo.GetRecentlyShownItemIdsAsync(userId, now.AddDays(-2));
+            Assert.Equal(2, recent.Count); // the 10-day-old row is excluded
+            Assert.Contains(top, recent);
+
+            var tops = await repo.GetRecentlyShownItemIdsAsync(userId, now.AddDays(-2), ClothingType.Top);
+            Assert.Equal(new[] { top }, tops);
+        }
+    }
+
+    [Fact]
+    public async Task PlannerEventRepository_GetActiveWithUpcomingItineraries_FiltersByStatusAndDate()
+    {
+        var user = await SeedUserAsync();
+        var today = DateTime.UtcNow.Date;
+
+        var o1 = new Outfit { UserId = user.Id, Name = "o1" };
+        var o2 = new Outfit { UserId = user.Id, Name = "o2" };
+        var o3 = new Outfit { UserId = user.Id, Name = "o3" };
+
+        var active = new PlannerEvent
+        {
+            UserId = user.Id, Name = "Upcoming", Type = "Trip", Location = "Rome",
+            StartDate = today, EndDate = today.AddDays(3), Status = "Active",
+            Itineraries = { new EventItinerary { OutfitId = o1.Id, Date = today.AddDays(1), Moment = "Day", StoredTemperature = 20f } }
+        };
+        var archived = new PlannerEvent
+        {
+            UserId = user.Id, Name = "Archived", Type = "Trip", Location = "Rome",
+            StartDate = today, EndDate = today.AddDays(3), Status = "Archived",
+            Itineraries = { new EventItinerary { OutfitId = o2.Id, Date = today.AddDays(1), Moment = "Day", StoredTemperature = 20f } }
+        };
+        var noTemp = new PlannerEvent
+        {
+            UserId = user.Id, Name = "NoTemp", Type = "Trip", Location = "Rome",
+            StartDate = today, EndDate = today.AddDays(3), Status = "Active",
+            Itineraries = { new EventItinerary { OutfitId = o3.Id, Date = today.AddDays(1), Moment = "Day", StoredTemperature = null } }
+        };
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            ctx.Outfits.AddRange(o1, o2, o3);
+            ctx.PlannerEvents.AddRange(active, archived, noTemp);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext())
+        {
+            var repo = new PlannerEventRepository(ctx);
+            var result = await repo.GetActiveWithUpcomingItinerariesAsync(today);
+
+            Assert.Single(result);
+            Assert.Equal(active.Id, result[0].Id);
+        }
+    }
+
+    [Fact]
     public async Task ClothingRepository_CrudAndQueries()
     {
         var user = await SeedUserAsync();

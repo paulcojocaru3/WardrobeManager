@@ -9,6 +9,9 @@ namespace WardrobeManager.Application.Outfits.Generation;
 // Correct slot-specific colour phrases in generated prose before they reach the UI.
 public static partial class StylistNarrativeGrounder
 {
+    // bounds each substitution so a pathological input can't hang the request (ReDoS guard).
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(200);
+
     private const string ColorPattern =
         "off[- ]white|navy blue|light blue|dark blue|light green|dark green|" +
         "black|white|gray|grey|charcoal|navy|blue|teal|turquoise|green|olive|sage|" +
@@ -41,13 +44,21 @@ public static partial class StylistNarrativeGrounder
             if (garmentPattern == null) continue;
 
             var pattern = $@"\b(?<color>{ColorPattern})\b(?<bridge>(?:[\s-]+\w+){{0,2}}[\s-]+)(?<garment>{garmentPattern})\b";
-            grounded = Regex.Replace(
-                grounded,
-                pattern,
-                match => MatchCase(color, match.Groups["color"].Value) +
-                         match.Groups["bridge"].Value +
-                         match.Groups["garment"].Value,
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            try
+            {
+                grounded = Regex.Replace(
+                    grounded,
+                    pattern,
+                    match => MatchCase(color, match.Groups["color"].Value) +
+                             match.Groups["bridge"].Value +
+                             match.Groups["garment"].Value,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    RegexTimeout);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // leave this item's colour ungrounded rather than fail the whole note.
+            }
         }
 
         return grounded;

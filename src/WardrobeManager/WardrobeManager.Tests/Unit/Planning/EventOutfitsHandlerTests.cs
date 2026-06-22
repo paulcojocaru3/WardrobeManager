@@ -39,9 +39,19 @@ public sealed class EventOutfitsHandlerTests
         _users, Composer(), PoolBuilder(), new StylistSettings(), _occasion, _feedback,
         NullLogger<GenerateEventOutfitsCommandHandler>.Instance);
 
+    private GenerateEventOutfitsCommandHandler GenerateStylistSut() => new(
+        _planner, _outfits, _clothing, _generator, _weather, _planning, _selector,
+        _users, Composer(), PoolBuilder(), new StylistSettings { Enabled = true }, _occasion, _feedback,
+        NullLogger<GenerateEventOutfitsCommandHandler>.Instance);
+
     private RegenerateEventItineraryOutfitCommandHandler RegenerateSut() => new(
         _planner, _outfits, _generator, _clothing, _planning, _weather,
         _users, Composer(), PoolBuilder(), new StylistSettings(), _occasion, _feedback,
+        NullLogger<RegenerateEventItineraryOutfitCommandHandler>.Instance);
+
+    private RegenerateEventItineraryOutfitCommandHandler RegenerateStylistSut() => new(
+        _planner, _outfits, _generator, _clothing, _planning, _weather,
+        _users, Composer(), PoolBuilder(), new StylistSettings { Enabled = true }, _occasion, _feedback,
         NullLogger<RegenerateEventItineraryOutfitCommandHandler>.Instance);
 
     // ---- builders ----
@@ -62,6 +72,11 @@ public sealed class EventOutfitsHandlerTests
     }
 
     private static ClothingItem WithEmbedding() => new() { Id = Guid.NewGuid(), Embedding = new[] { 0.1f, 0.2f } };
+
+    private static ClothingItem TypedItem(ClothingType type, float[] embedding) => new()
+    {
+        Id = Guid.NewGuid(), Type = type, Usage = "Casual", Color = "blue", Name = type.ToString(), Embedding = embedding
+    };
 
     private static List<ClothingItem> Wardrobe(int n)
     {
@@ -241,6 +256,88 @@ public sealed class EventOutfitsHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Generate_UsesStylist_WhenUserOptedInAndEnabled()
+    {
+        var ev = Event(days: 1);
+        _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
+
+        var top = TypedItem(ClothingType.Top, new[] { 1f, 0f, 0f });
+        var bottom = TypedItem(ClothingType.Bottom, new[] { 0f, 1f, 0f });
+        var shoes = TypedItem(ClothingType.Shoes, new[] { 0f, 0f, 1f });
+        var wardrobe = new List<ClothingItem> { top, bottom, shoes, TypedItem(ClothingType.Accessory, new[] { 1f, 1f, 0f }), TypedItem(ClothingType.Outerwear, new[] { 0f, 1f, 1f }) };
+        _clothing.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(wardrobe);
+        _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
+        _feedback.GetRecentlyShownItemIdsAsync(Arg.Any<Guid>(), Arg.Any<DateTime>(), Arg.Any<ClothingType?>(), Arg.Any<CancellationToken>())
+                 .Returns(Array.Empty<Guid>());
+        _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>())
+              .Returns(new User { Id = _userId, UseGemmaStylistForOutfits = true });
+        _ml.EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new[] { 1f, 0f, 0f });
+        _clothing.GetSimilarItemsAsync(_userId, Arg.Any<float[]>(), Arg.Any<ClothingType?>(),
+                Arg.Any<int>(), Arg.Any<double?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var type = call.ArgAt<ClothingType?>(2);
+                return wardrobe.Where(i => i.Type == type).Select(i => (i, 0.9)).ToList();
+            });
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>());
+        _stylist.ComposeAsync(Arg.Any<IReadOnlyList<StylistItem>>(), Arg.Any<StylistContext>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var lines = call.Arg<IReadOnlyList<StylistItem>>();
+                int Num(string slot) => lines.First(l => l.Slot == slot).Number;
+                IReadOnlyList<StylistOutfit> outfits = new[]
+                {
+                    new StylistOutfit(new[] { Num("TOP"), Num("BOTTOM"), Num("SHOES") }, "Sunny Day", new[] { "easy palette" }, "roll the sleeves"),
+                };
+                return outfits;
+            });
+        _clothing.GetByIdsAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var ids = call.Arg<IEnumerable<Guid>>().ToHashSet();
+                return wardrobe.Where(i => ids.Contains(i.Id)).ToList();
+            });
+        StubForecast(1);
+        StubResolveDayPlan();
+
+        var result = await GenerateStylistSut().Handle(new GenerateEventOutfitsCommand(_userId, ev.Id), CancellationToken.None);
+
+        Assert.Equal(1, result.OutfitsCreated);
+        await _outfits.Received(1).AddAsync(
+            Arg.Is<Outfit>(o => o.Name.Contains("Sunny Day")), Arg.Any<CancellationToken>());
+        // deterministic generator must NOT be used when the stylist succeeds
+        await _generator.DidNotReceive().GenerateAiOutfitAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Generate_FallsBackToDeterministic_WhenStylistReturnsNull()
+    {
+        var ev = Event(days: 1);
+        _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
+        _clothing.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(Wardrobe(5));
+        _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
+        _feedback.GetRecentlyShownItemIdsAsync(Arg.Any<Guid>(), Arg.Any<DateTime>(), Arg.Any<ClothingType?>(), Arg.Any<CancellationToken>())
+                 .Returns(Array.Empty<Guid>());
+        _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>())
+              .Returns(new User { Id = _userId, UseGemmaStylistForOutfits = true });
+        _ml.EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new[] { 1f, 0f, 0f });
+        _stylist.ComposeAsync(Arg.Any<IReadOnlyList<StylistItem>>(), Arg.Any<StylistContext>(), Arg.Any<CancellationToken>())
+                .Returns((IReadOnlyList<StylistOutfit>?)null);
+        StubForecast(1);
+        StubResolveDayPlan();
+        StubSelectorReturns(WithEmbedding());
+        StubGeneratorReturnsItem();
+        StubResolvedItems(1);
+
+        var result = await GenerateStylistSut().Handle(new GenerateEventOutfitsCommand(_userId, ev.Id), CancellationToken.None);
+
+        Assert.Equal(1, result.OutfitsCreated);
+        await _generator.Received(1).GenerateAiOutfitAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>());
+    }
+
     // ================= RegenerateEventItineraryOutfitCommandHandler =================
 
     [Fact]
@@ -342,6 +439,63 @@ public sealed class EventOutfitsHandlerTests
 
         Assert.True(await RegenerateSut().Handle(
             new RegenerateEventItineraryOutfitCommand(_userId, ev.Id, it.Id), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Regenerate_UsesStylist_WhenUserOptedInAndEnabled()
+    {
+        var ev = Event(days: 1);
+        var it = Itinerary(ev.StartDate);
+        ev.Itineraries.Add(it);
+        _planner.GetByIdAsync(ev.Id, Arg.Any<CancellationToken>()).Returns(ev);
+
+        var top = TypedItem(ClothingType.Top, new[] { 1f, 0f, 0f });
+        var bottom = TypedItem(ClothingType.Bottom, new[] { 0f, 1f, 0f });
+        var shoes = TypedItem(ClothingType.Shoes, new[] { 0f, 0f, 1f });
+        var wardrobe = new List<ClothingItem> { top, bottom, shoes };
+        _clothing.GetByUserIdAsync(_userId, Arg.Any<CancellationToken>()).Returns(wardrobe);
+        _clothing.GetWearRecencyAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, DateTime>());
+        _feedback.GetRecentlyShownItemIdsAsync(Arg.Any<Guid>(), Arg.Any<DateTime>(), Arg.Any<ClothingType?>(), Arg.Any<CancellationToken>())
+                 .Returns(Array.Empty<Guid>());
+        _users.GetByIdAsync(_userId, Arg.Any<CancellationToken>())
+              .Returns(new User { Id = _userId, UseGemmaStylistForOutfits = true });
+        _ml.EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new[] { 1f, 0f, 0f });
+        _clothing.GetSimilarItemsAsync(_userId, Arg.Any<float[]>(), Arg.Any<ClothingType?>(),
+                Arg.Any<int>(), Arg.Any<double?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var type = call.ArgAt<ClothingType?>(2);
+                return wardrobe.Where(i => i.Type == type).Select(i => (i, 0.9)).ToList();
+            });
+        _pairScores.GetCompatibilityMapAsync(_userId, Arg.Any<CancellationToken>()).Returns(new Dictionary<(Guid, Guid), double>());
+        _stylist.ComposeAsync(Arg.Any<IReadOnlyList<StylistItem>>(), Arg.Any<StylistContext>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var lines = call.Arg<IReadOnlyList<StylistItem>>();
+                int Num(string slot) => lines.First(l => l.Slot == slot).Number;
+                IReadOnlyList<StylistOutfit> outfits = new[]
+                {
+                    new StylistOutfit(new[] { Num("TOP"), Num("BOTTOM"), Num("SHOES") }, "Fresh Take", new[] { "tonal" }, "tuck it"),
+                };
+                return outfits;
+            });
+        _clothing.GetByIdsAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var ids = call.Arg<IEnumerable<Guid>>().ToHashSet();
+                return wardrobe.Where(i => ids.Contains(i.Id)).ToList();
+            });
+        StubForecast(1);
+        StubResolveDayPlan();
+
+        var ok = await RegenerateStylistSut().Handle(
+            new RegenerateEventItineraryOutfitCommand(_userId, ev.Id, it.Id), CancellationToken.None);
+
+        Assert.True(ok);
+        await _outfits.Received(1).AddAsync(Arg.Is<Outfit>(o => o.Name.Contains("Fresh Take")), Arg.Any<CancellationToken>());
+        await _planner.Received(1).UpdateItineraryAsync(it, Arg.Any<CancellationToken>());
+        await _generator.DidNotReceive().GenerateAiOutfitAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<OutfitGenerationOptions>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

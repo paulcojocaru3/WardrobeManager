@@ -23,6 +23,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\WardrobeManager.Infrastructure\WardrobeManager.Infrastructure.csproj" />
+        <ProjectReference Include="..\WardrobeManager.API\WardrobeManager.API.csproj" />
     </ItemGroup>
 
     <ItemGroup>
