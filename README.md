@@ -33,6 +33,10 @@ git clone https://github.com/paulcojocaru3/WardrobeManager.git
 cd WardrobeManager
 ```
 
+# Google Colab
+
+https://colab.research.google.com/drive/1Doo0obximAWPQpzZTkJIrLT4RySFGmwH?usp=sharing
+
 ### 2. Creează configurația locală
 
 Pe Windows PowerShell:
