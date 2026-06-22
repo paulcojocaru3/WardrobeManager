@@ -1,120 +1,195 @@
-# Sistem pentru Gestionarea Garderobei Digitale si Recomandari Personalizate bazate pe Inteligenta Artificiala
+# WardrobeManager
 
-Versiune stabila: **1.0.0**
+WardrobeManager este o aplicație web pentru organizarea garderobei și generarea de ținute personalizate. Poți încărca fotografii cu hainele tale, salva outfituri, planifica ținute pentru evenimente și primi recomandări adaptate vremii și preferințelor tale.
 
-Acest proiect reprezinta o solutie software integrata destinata digitalizarii pieselor vestimentare si optimizarii procesului de selectie a tinutelor prin utilizarea algoritmilor de invatare automata si cautare vectoriala.
+## Ce poți face
 
-## Obiectivele Proiectului
-Obiectivul principal al aplicatiei este de a oferi utilizatorilor un instrument eficient de organizare a garderobei proprii. Sistemul automatizeaza clasificarea articolelor vestimentare si genereaza recomandari personalizate (outfits) bazate pe coerenta vizuala si contextul utilizarii (sezon, gen, tipul ocaziei).
+- adaugi și organizezi articole vestimentare;
+- generezi outfituri din garderoba proprie;
+- primești un Outfit of the Day;
+- setezi culori favorite și culori de evitat;
+- salvezi outfituri și înregistrezi când le porți;
+- planifici ținute pentru călătorii și evenimente;
+- activezi opțional Gemma3 pentru selecția finală a outfiturilor.
 
-## Arhitectura Tehnica
+## Instalare recomandată
 
-Sistemul este dezvoltat utilizand o arhitectura modulara, compusa din trei servicii distincte care comunica prin protocoale standard (HTTP/REST):
+### Cerințe
 
-### 1. Serviciul Backend (Core API)
-*   **Tehnologie:** .NET 10 (C#)
-*   **Structura:** Arhitectura stratificata (Clean Architecture) implementand modelul CQRS prin intermediul bibliotecii MediatR.
-*   **Persistenta:** PostgreSQL cu extensia `pgvector` pentru stocarea si interogarea embedding-urilor vectoriale.
-*   **Validare:** Implementarea regulilor de business prin FluentValidation.
+Ai nevoie de:
 
-### 2. Interfata Utilizator (Frontend)
-*   **Tehnologie:** React.js (TypeScript/JavaScript) cu procesor de build Vite.
-*   **Design:** Interfata Reactiva, optimizata pentru o experienta utilizator fluida, utilizand standarde moderne de CSS.
+- Windows, macOS sau Linux;
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) sau Docker Engine cu Docker Compose v2;
+- minimum 8 GB RAM disponibili. Prima pornire poate necesita mai mult timp și spațiu pentru modelele ML.
 
-### 3. Serviciul de Inteligenta Artificiala (ML Service)
-*   **Tehnologie:** Python (FastAPI).
-*   **Modele:** Integrarea modelului Fashion-CLIP pentru extragerea caracteristicilor vizuale si modele scikit-learn pentru clasificarea atributelor (article type, color, gender, season, usage).
-*   **Procesare:** Extragerea embedding-urilor necesare cautarii prin similaritate cosinusoidala in baza de date.
+Nu trebuie să instalezi separat PostgreSQL, .NET, Node.js sau Python.
 
-## Organizarea Proiectului
+### 1. Descarcă proiectul
 
-Structura radacina a repository-ului este divizata dupa cum urmeaza:
+Descarcă arhiva proiectului și extrage-o sau clonează repository-ul:
 
-*   `src/WardrobeManager/` - Contine solutia principala .NET, divizata in proiecte de Domain, Application, Infrastructure si API.
-*   `wardrobe_web/` - Contine codul sursa al aplicatiei web React.
-*   `ml_api/` - Contine implementarea serviciului Python si modelele pre-antrenate.
+```bash
+git clone https://github.com/paulcojocaru3/WardrobeManager.git
+cd WardrobeManager
+```
 
-## Flux de Functionare
+### 2. Creează configurația locală
 
-1.  **Digitizare:** Incarcarea unei imagini de catre utilizator este preluata de API-ul principal.
-2.  **Analiza Automata:** Serviciul ML proceseaza imaginea, elimina fundalul si extrage metadatele (atributele) si vectorul de caracteristici.
-3.  **Indexare:** Datele sunt stocate in PostgreSQL, unde vectorul de embedding permite cautari ultra-rapide prin similaritate.
-4.  **Generare Tinute:** Sistemul utilizeaza cautarea vectoriala pentru a gasi piese vestimentare complementare celor selectate, formand un ansamblu coerent.
+Pe Windows PowerShell:
 
-## Instructiuni de Configurare si Rulare
+```powershell
+Copy-Item .env.example .env
+```
 
-### Pornire completa cu Docker (recomandat)
-
-Sunt necesare Docker Engine si Docker Compose v2.
+Pe macOS sau Linux:
 
 ```bash
 cp .env.example .env
-# Completeaza POSTGRES_PASSWORD si JWT_KEY in .env
+```
+
+Deschide fișierul `.env` și înlocuiește obligatoriu aceste valori:
+
+```env
+POSTGRES_PASSWORD=alege_o_parola_lunga
+JWT_KEY=alege_o_cheie_aleatoare_de_minimum_32_de_caractere
+```
+
+Nu publica și nu trimite altor persoane fișierul `.env`.
+
+### 3. Pornește aplicația
+
+Din directorul proiectului rulează:
+
+```bash
 docker compose up -d --build
 ```
 
-Aplicatia este disponibila implicit la `http://localhost`. Prima pornire a serviciului ML poate dura cateva minute deoarece modelele sunt descarcate si memorate intr-un volum persistent.
+Verifică starea serviciilor:
 
 ```bash
 docker compose ps
-docker compose logs -f wardrobe-api ml-api
 ```
 
-Configurarea completa pentru un host de productie, HTTPS, actualizari si backup este descrisa in [DEPLOYMENT.md](DEPLOYMENT.md).
+Când toate serviciile sunt `healthy`, deschide [http://localhost](http://localhost) și creează un cont.
 
-### Cerinte Preliminare
-*   .NET SDK 10.0+
-*   Node.js 24+
-*   Python 3.12+
-*   Instanta PostgreSQL configurata cu extensia `pgvector`
+Prima pornire poate dura câteva minute deoarece serviciul ML descarcă modelele necesare. Descărcările sunt păstrate în volume Docker și nu se repetă la fiecare pornire.
 
-### Instalare si Pornire
+## Pornire și oprire
 
-#### Serviciul Machine Learning
-```bash
-cd ml_api
-pip install -r requirements.txt
-uvicorn api:app --host 0.0.0.0 --port 8000
-```
-
-#### Serviciul Backend
-```bash
-cd src/WardrobeManager/WardrobeManager.API
-dotnet restore
-dotnet run
-```
-
-#### Aplicatia Frontend
-```bash
-cd wardrobe_web
-npm ci
-npm run dev
-```
-
-## Verificari de calitate
+Pornește aplicația instalată:
 
 ```bash
-dotnet test src/WardrobeManager/WardrobeManager.sln -c Release
-npm --prefix wardrobe_web run lint
-npm --prefix wardrobe_web run build
-python -m compileall -q ml_api/api.py
+docker compose up -d
 ```
 
-Workflow-ul GitHub Actions din `.github/workflows/ci.yml` ruleaza aceleasi verificari la fiecare push si pull request pe `master`.
-
-## Publicarea versiunii finale pe GitHub
-
-Inainte de publicare, verifica in mod explicit lista fisierelor incluse:
+Oprește aplicația fără să pierzi datele:
 
 ```bash
-git status
-git diff --check
-git add -A
-git status
-git commit -m "Prepare v1.0.0 release"
-git tag -a v1.0.0 -m "WardrobeManager v1.0.0"
-git push origin master
-git push origin v1.0.0
+docker compose down
 ```
 
-Nu comite fisierul `.env`, chei API, parole, backup-uri de baza de date sau date Kaggle. Regulile din `.gitignore` acopera aceste fisiere, dar lista staged trebuie verificata inainte de commit.
+Datele garderobei rămân în volumul PostgreSQL.
+
+> Nu folosi `docker compose down -v`. Opțiunea `-v` șterge volumele și baza de date.
+
+## Actualizare fără pierderea bazei de date
+
+Dacă ai instalat proiectul cu Git:
+
+```bash
+git pull
+docker compose up -d --build --no-deps ml-api wardrobe-api wardrobe-frontend
+```
+
+Această comandă reconstruiește aplicația fără să recreeze serviciul PostgreSQL. Volumul bazei de date rămâne intact.
+
+## Configurare opțională
+
+### Alt port
+
+Pentru a deschide aplicația pe alt port, modifică în `.env`:
+
+```env
+APP_PORT=8080
+APP_ORIGIN=http://localhost:8080
+```
+
+Aplicația va fi disponibilă la `http://localhost:8080`.
+
+### Prognoza meteo
+
+Adaugă cheia serviciului meteo în `.env`:
+
+```env
+WEATHER_API_KEY=cheia_ta
+```
+
+### Gemma3 Stylist
+
+Gemma3 este opțional. Aplicația poate genera outfituri și fără el.
+
+1. Instalează [Ollama](https://ollama.com/).
+2. Descarcă modelul:
+
+```bash
+ollama pull gemma3
+```
+
+3. Modifică `.env`:
+
+```env
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=gemma3
+OUTFIT_STYLIST_ENABLED=true
+```
+
+4. Reconstruiește API-ul:
+
+```bash
+docker compose up -d --build --no-deps wardrobe-api
+```
+
+Activează apoi opțiunea Gemma3 din Settings. Culorile favorite, culorile de evitat și preferințele învățate sunt luate în calcul la generare.
+
+## Probleme frecvente
+
+### Aplicația nu se deschide
+
+Verifică serviciile și logurile:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 wardrobe-frontend wardrobe-api ml-api
+```
+
+### Serviciul ML apare `starting`
+
+La prima pornire, descărcarea și inițializarea modelelor poate dura câteva minute. Urmărește progresul:
+
+```bash
+docker compose logs -f ml-api
+```
+
+### Portul 80 este ocupat
+
+Schimbă `APP_PORT` și `APP_ORIGIN` în `.env`, apoi rulează:
+
+```bash
+docker compose up -d
+```
+
+### Gemma3 nu răspunde
+
+Verifică dacă Ollama rulează și modelul este instalat:
+
+```bash
+ollama list
+```
+
+Dezactivează temporar Gemma3 din Settings sau setează `OUTFIT_STYLIST_ENABLED=false` dacă vrei să folosești generatorul standard.
+
+## Date și backup
+
+Hainele, outfiturile, preferințele și conturile sunt păstrate în volumul Docker `postgres_data`. Imaginile și modelele descărcate sunt păstrate tot în volume Docker.
+
+Pentru instalări publice, HTTPS, backup și restaurare consultă [DEPLOYMENT.md](DEPLOYMENT.md).
